@@ -1,49 +1,143 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 import defaultPlaces from '../data/places';
 
 const STORAGE_KEY = 'tw_trip_places';
 
+// ─── localStorage fallback (used when Supabase env vars are not set) ──────────
+
+function loadFromStorage() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : defaultPlaces;
+  } catch {
+    return defaultPlaces;
+  }
+}
+
+function saveToStorage(places) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(places));
+}
+
+// ─── Main hook ────────────────────────────────────────────────────────────────
+
 export function usePlaces() {
-  const [places, setPlaces] = useState(defaultPlaces);
-  const [loaded, setLoaded] = useState(false);
+  const [places, setPlaces] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Load from localStorage on mount (client-only)
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setPlaces(JSON.parse(stored));
-      }
-    } catch {
-      // ignore parse errors, fall back to defaults
+  const isSupabase = !!supabase;
+
+  // ── Fetch all places ──────────────────────────────────────────────────────
+  const fetchPlaces = useCallback(async () => {
+    if (!isSupabase) {
+      setPlaces(loadFromStorage());
+      setLoading(false);
+      return;
     }
-    setLoaded(true);
-  }, []);
+    setLoading(true);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from('places')
+      .select('*')
+      .order('id', { ascending: true });
+    if (err) {
+      setError(err.message);
+    } else {
+      setPlaces(data);
+    }
+    setLoading(false);
+  }, [isSupabase]);
 
-  function persist(next) {
-    setPlaces(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  // ── Initial load + real-time subscription ────────────────────────────────
+  useEffect(() => {
+    fetchPlaces();
+
+    if (!supabase) return;
+
+    // Real-time: any INSERT / UPDATE / DELETE on the places table
+    // automatically refreshes the list for all connected clients
+    const channel = supabase
+      .channel('places-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'places' },
+        () => fetchPlaces()
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [fetchPlaces]);
+
+  // ── CRUD operations ───────────────────────────────────────────────────────
+
+  async function addPlace(place) {
+    if (!isSupabase) {
+      const next = [...places, { ...place, id: Date.now() }];
+      setPlaces(next);
+      saveToStorage(next);
+      return { error: null };
+    }
+    const { error: err } = await supabase.from('places').insert([place]);
+    if (err) return { error: err.message };
+    // realtime subscription will refresh automatically
+    return { error: null };
   }
 
-  function addPlace(place) {
-    const next = [...places, { ...place, id: Date.now() }];
-    persist(next);
+  async function updatePlace(updated) {
+    if (!isSupabase) {
+      const next = places.map((p) => (p.id === updated.id ? updated : p));
+      setPlaces(next);
+      saveToStorage(next);
+      return { error: null };
+    }
+    const { error: err } = await supabase
+      .from('places')
+      .update(updated)
+      .eq('id', updated.id);
+    if (err) return { error: err.message };
+    return { error: null };
   }
 
-  function updatePlace(updated) {
-    const next = places.map((p) => (p.id === updated.id ? updated : p));
-    persist(next);
+  async function deletePlace(id) {
+    if (!isSupabase) {
+      const next = places.filter((p) => p.id !== id);
+      setPlaces(next);
+      saveToStorage(next);
+      return { error: null };
+    }
+    const { error: err } = await supabase.from('places').delete().eq('id', id);
+    if (err) return { error: err.message };
+    return { error: null };
   }
 
-  function deletePlace(id) {
-    const next = places.filter((p) => p.id !== id);
-    persist(next);
+  async function resetToDefaults() {
+    if (!isSupabase) {
+      localStorage.removeItem(STORAGE_KEY);
+      setPlaces(defaultPlaces);
+      return { error: null };
+    }
+    // Delete all rows then re-insert defaults
+    const { error: delErr } = await supabase
+      .from('places')
+      .delete()
+      .neq('id', 0); // matches all rows
+    if (delErr) return { error: delErr.message };
+    const { error: insErr } = await supabase
+      .from('places')
+      .insert(defaultPlaces.map(({ id: _id, ...rest }) => rest)); // strip local ids
+    if (insErr) return { error: insErr.message };
+    return { error: null };
   }
 
-  function resetToDefaults() {
-    localStorage.removeItem(STORAGE_KEY);
-    setPlaces(defaultPlaces);
-  }
-
-  return { places, loaded, addPlace, updatePlace, deletePlace, resetToDefaults };
+  return {
+    places,
+    loading,
+    error,
+    isSupabase,
+    addPlace,
+    updatePlace,
+    deletePlace,
+    resetToDefaults,
+  };
 }

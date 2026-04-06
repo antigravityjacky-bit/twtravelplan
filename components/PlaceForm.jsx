@@ -12,7 +12,7 @@ const EMPTY = {
   lng: '',
 };
 
-export default function PlaceForm({ initial, onSave, onCancel }) {
+export default function PlaceForm({ initial, onSave, onCancel, saving = false }) {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
 
@@ -182,9 +182,10 @@ export default function PlaceForm({ initial, onSave, onCancel }) {
             </button>
             <button
               type="submit"
-              className="flex-1 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors shadow-sm"
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors shadow-sm disabled:opacity-50"
             >
-              {isEdit ? '儲存更改' : '新增地點'}
+              {saving ? '儲存中...' : isEdit ? '儲存更改' : '新增地點'}
             </button>
           </div>
         </form>

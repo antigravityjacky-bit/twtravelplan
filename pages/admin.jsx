@@ -8,66 +8,94 @@ import { CATEGORY_BADGE, CATEGORY_BORDER } from '../components/FilterBar';
 const CATEGORY_EMOJI = { Food: '🍜', Attraction: '🗺️', Hotel: '🏨', Bar: '🍸' };
 
 export default function Admin() {
-  const { places, loaded, addPlace, updatePlace, deletePlace, resetToDefaults } = usePlaces();
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState(null); // null = add mode, place obj = edit mode
-  const [confirmDelete, setConfirmDelete] = useState(null); // place to delete
-  const [search, setSearch] = useState('');
+  const {
+    places, loading, error, isSupabase,
+    addPlace, updatePlace, deletePlace, resetToDefaults,
+  } = usePlaces();
+
+  const [formOpen, setFormOpen]       = useState(false);
+  const [editing, setEditing]         = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [search, setSearch]           = useState('');
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [toast, setToast]             = useState(null); // { msg, type }
 
-  function openAdd() { setEditing(null); setFormOpen(true); }
-  function openEdit(place) { setEditing(place); setFormOpen(true); }
-  function closeForm() { setFormOpen(false); setEditing(null); }
+  function showToast(msg, type = 'success') {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
 
-  function handleSave(data) {
-    if (editing) {
-      updatePlace({ ...data, id: editing.id });
-    } else {
-      addPlace(data);
-    }
+  function openAdd()        { setEditing(null); setFormOpen(true); }
+  function openEdit(place)  { setEditing(place); setFormOpen(true); }
+  function closeForm()      { setFormOpen(false); setEditing(null); }
+
+  async function handleSave(data) {
+    setSaving(true);
+    const op = editing
+      ? updatePlace({ ...data, id: editing.id })
+      : addPlace(data);
+    const { error: err } = await op;
+    setSaving(false);
+    if (err) { showToast(`錯誤：${err}`, 'error'); return; }
+    showToast(editing ? '已儲存更改 ✓' : '已新增地點 ✓');
     closeForm();
   }
 
-  function handleDelete(place) {
-    setConfirmDelete(place);
-  }
-
-  function confirmDoDelete() {
-    deletePlace(confirmDelete.id);
+  async function confirmDoDelete() {
+    setSaving(true);
+    const { error: err } = await deletePlace(confirmDelete.id);
+    setSaving(false);
     setConfirmDelete(null);
+    if (err) { showToast(`刪除失敗：${err}`, 'error'); return; }
+    showToast('已刪除地點 ✓');
   }
 
-  function handleReset() {
-    resetToDefaults();
+  async function handleReset() {
+    setSaving(true);
+    const { error: err } = await resetToDefaults();
+    setSaving(false);
     setResetConfirm(false);
+    if (err) { showToast(`重設失敗：${err}`, 'error'); return; }
+    showToast('已重設為預設數據 ✓');
   }
 
   const filtered = places.filter((p) =>
     !search.trim() ||
     p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.nameEn?.toLowerCase().includes(search.toLowerCase()) ||
+    (p.nameEn ?? '').toLowerCase().includes(search.toLowerCase()) ||
     p.category.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <>
-      <Head>
-        <title>Admin — Taiwan Trip Planner</title>
-      </Head>
+      <Head><title>Admin — Taiwan Trip Planner</title></Head>
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-5 py-2.5 rounded-xl shadow-lg text-sm font-medium text-white transition-all ${
+          toast.type === 'error' ? 'bg-rose-500' : 'bg-emerald-500'
+        }`}>
+          {toast.msg}
+        </div>
+      )}
 
       <div className="min-h-screen bg-slate-50">
         {/* Top bar */}
         <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
           <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Link
-                href="/"
-                className="text-slate-400 hover:text-slate-600 transition-colors text-sm"
-              >
+              <Link href="/" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">
                 ← 返回地圖
               </Link>
               <span className="text-slate-200">|</span>
               <h1 className="font-bold text-slate-800">🇹🇼 行程管理</h1>
+              {isSupabase && (
+                <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full ring-1 ring-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                  Real-time 同步
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -87,13 +115,22 @@ export default function Admin() {
         </header>
 
         <main className="max-w-5xl mx-auto px-6 py-8">
+          {/* Error banner */}
+          {error && (
+            <div className="mb-6 px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm flex items-center gap-2">
+              <span>⚠️</span>
+              <span>{error}</span>
+              <button onClick={() => window.location.reload()} className="ml-auto underline text-xs">重試</button>
+            </div>
+          )}
+
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             {['Food', 'Attraction', 'Hotel', 'Bar'].map((cat) => {
               const count = places.filter((p) => p.category === cat).length;
               return (
                 <div key={cat} className={`bg-white rounded-2xl p-4 border-l-4 shadow-sm ${CATEGORY_BORDER[cat]}`}>
-                  <p className="text-2xl font-bold text-slate-800">{count}</p>
+                  <p className="text-2xl font-bold text-slate-800">{loading ? '–' : count}</p>
                   <p className="text-xs text-slate-500 mt-0.5">{CATEGORY_EMOJI[cat]} {cat}</p>
                 </div>
               );
@@ -112,13 +149,16 @@ export default function Admin() {
               />
             </div>
             <p className="text-sm text-slate-400">
-              共 <span className="font-semibold text-slate-700">{filtered.length}</span> 個地點
+              共 <span className="font-semibold text-slate-700">{loading ? '…' : filtered.length}</span> 個地點
             </p>
           </div>
 
           {/* Table */}
-          {!loaded ? (
-            <div className="text-center py-16 text-slate-400">載入中...</div>
+          {loading ? (
+            <div className="bg-white rounded-2xl shadow-sm p-12 text-center text-slate-400">
+              <p className="text-3xl mb-2 animate-pulse">🗺️</p>
+              <p>載入中...</p>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-16 text-slate-400">
               <p className="text-3xl mb-2">🗺️</p>
@@ -165,7 +205,7 @@ export default function Admin() {
                             編輯
                           </button>
                           <button
-                            onClick={() => handleDelete(place)}
+                            onClick={() => setConfirmDelete(place)}
                             className="px-2.5 py-1 rounded-lg text-xs text-rose-500 hover:bg-rose-50 transition-colors"
                           >
                             刪除
@@ -187,6 +227,7 @@ export default function Admin() {
           initial={editing}
           onSave={handleSave}
           onCancel={closeForm}
+          saving={saving}
         />
       )}
 
@@ -195,21 +236,21 @@ export default function Admin() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
             <p className="font-semibold text-slate-800">確定刪除？</p>
-            <p className="text-sm text-slate-500 mt-1">
-              「{confirmDelete.name}」刪除後不可恢復。
-            </p>
+            <p className="text-sm text-slate-500 mt-1">「{confirmDelete.name}」刪除後不可恢復。</p>
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors"
+                disabled={saving}
+                className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors disabled:opacity-50"
               >
                 取消
               </button>
               <button
                 onClick={confirmDoDelete}
-                className="flex-1 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium hover:bg-rose-600 transition-colors"
+                disabled={saving}
+                className="flex-1 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium hover:bg-rose-600 transition-colors disabled:opacity-50"
               >
-                確認刪除
+                {saving ? '刪除中...' : '確認刪除'}
               </button>
             </div>
           </div>
@@ -227,15 +268,17 @@ export default function Admin() {
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => setResetConfirm(false)}
-                className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors"
+                disabled={saving}
+                className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors disabled:opacity-50"
               >
                 取消
               </button>
               <button
                 onClick={handleReset}
-                className="flex-1 py-2 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors"
+                disabled={saving}
+                className="flex-1 py-2 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors disabled:opacity-50"
               >
-                確認重設
+                {saving ? '重設中...' : '確認重設'}
               </button>
             </div>
           </div>

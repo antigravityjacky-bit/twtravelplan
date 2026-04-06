@@ -10,7 +10,7 @@ import PlaceList from '../components/PlaceList';
 const MapView = dynamic(() => import('../components/MapView'), { ssr: false });
 
 export default function Home() {
-  const { places } = usePlaces();
+  const { places, loading } = usePlaces();
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedPlace, setSelectedPlace] = useState(null);
 
@@ -79,11 +79,18 @@ export default function Home() {
 
           {/* Place List */}
           <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4">
-            <PlaceList
-              places={filteredPlaces}
-              selectedPlace={selectedPlace}
-              onSelectPlace={handleSelectPlace}
-            />
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <p className="text-3xl mb-2 animate-pulse">🗺️</p>
+                <p className="text-slate-400 text-sm">載入中...</p>
+              </div>
+            ) : (
+              <PlaceList
+                places={filteredPlaces}
+                selectedPlace={selectedPlace}
+                onSelectPlace={handleSelectPlace}
+              />
+            )}
           </div>
 
           {/* Footer */}
