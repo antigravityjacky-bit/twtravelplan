@@ -1,33 +1,44 @@
 const CATEGORIES = [
-  { label: 'All', value: 'All', color: 'bg-slate-700 text-white', ring: 'ring-slate-700', dot: '#475569' },
-  { label: '🍜 Food', value: 'Food', color: 'bg-amber-400 text-white', ring: 'ring-amber-400', dot: '#F59E0B' },
-  { label: '🗺️ Attraction', value: 'Attraction', color: 'bg-blue-500 text-white', ring: 'ring-blue-500', dot: '#3B82F6' },
-  { label: '🏨 Hotel', value: 'Hotel', color: 'bg-violet-500 text-white', ring: 'ring-violet-500', dot: '#8B5CF6' },
-  { label: '🍸 Bar', value: 'Bar', color: 'bg-rose-500 text-white', ring: 'ring-rose-500', dot: '#F43F5E' },
+  { label: 'All',    value: 'All',        color: 'bg-slate-700 text-white',   ring: 'ring-slate-700' },
+  { label: '🍳 早餐店', value: 'Breakfast',  color: 'bg-amber-400 text-white',   ring: 'ring-amber-400' },
+  { label: '☕ 咖啡店', value: 'Cafe',       color: 'bg-stone-500 text-white',   ring: 'ring-stone-500' },
+  { label: '🍽️ 餐廳',  value: 'Restaurant', color: 'bg-orange-500 text-white',  ring: 'ring-orange-500' },
+  { label: '🗺️ Attraction', value: 'Attraction', color: 'bg-blue-500 text-white', ring: 'ring-blue-500' },
+  { label: '🏨 Hotel',      value: 'Hotel',      color: 'bg-violet-500 text-white', ring: 'ring-violet-500' },
+  { label: '🍸 Bar',        value: 'Bar',        color: 'bg-rose-500 text-white',   ring: 'ring-rose-500' },
 ];
 
 export const CATEGORY_COLORS = {
-  Food: '#F59E0B',
-  Attraction: '#3B82F6',
-  Hotel: '#8B5CF6',
-  Bar: '#F43F5E',
+  Breakfast:  '#FBBF24', // amber-400
+  Cafe:       '#78716C', // stone-500
+  Restaurant: '#F97316', // orange-500
+  Attraction: '#3B82F6', // blue-500
+  Hotel:      '#8B5CF6', // violet-500
+  Bar:        '#F43F5E', // rose-500
+  Food:       '#F97316', // backward-compat → same as Restaurant
 };
 
 export const CATEGORY_BORDER = {
-  Food: 'border-amber-400',
+  Breakfast:  'border-amber-400',
+  Cafe:       'border-stone-500',
+  Restaurant: 'border-orange-500',
   Attraction: 'border-blue-500',
-  Hotel: 'border-violet-500',
-  Bar: 'border-rose-500',
+  Hotel:      'border-violet-500',
+  Bar:        'border-rose-500',
+  Food:       'border-orange-500', // backward-compat
 };
 
 export const CATEGORY_BADGE = {
-  Food: 'bg-amber-50 text-amber-700 ring-amber-200',
+  Breakfast:  'bg-amber-50 text-amber-700 ring-amber-200',
+  Cafe:       'bg-stone-50 text-stone-700 ring-stone-200',
+  Restaurant: 'bg-orange-50 text-orange-700 ring-orange-200',
   Attraction: 'bg-blue-50 text-blue-700 ring-blue-200',
-  Hotel: 'bg-violet-50 text-violet-700 ring-violet-200',
-  Bar: 'bg-rose-50 text-rose-700 ring-rose-200',
+  Hotel:      'bg-violet-50 text-violet-700 ring-violet-200',
+  Bar:        'bg-rose-50 text-rose-700 ring-rose-200',
+  Food:       'bg-orange-50 text-orange-700 ring-orange-200', // backward-compat
 };
 
-// mobile prop: when true, renders as a single non-wrapping row (for horizontal scroll)
+// mobile prop: renders as a single non-wrapping horizontal-scroll row
 export default function FilterBar({ activeCategory, onCategoryChange, counts, mobile = false }) {
   const buttons = CATEGORIES.map(({ label, value, color, ring }) => {
     const isActive = activeCategory === value;
@@ -47,12 +58,7 @@ export default function FilterBar({ activeCategory, onCategoryChange, counts, mo
         `}
       >
         {label}
-        <span
-          className={`
-            text-xs font-semibold px-1.5 py-0.5 rounded-full
-            ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}
-          `}
-        >
+        <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}`}>
           {count}
         </span>
       </button>
@@ -62,9 +68,7 @@ export default function FilterBar({ activeCategory, onCategoryChange, counts, mo
   if (mobile) {
     return (
       <div className="overflow-x-auto scrollbar-none -mx-4 px-4">
-        <div className="flex gap-2 w-max py-0.5">
-          {buttons}
-        </div>
+        <div className="flex gap-2 w-max py-0.5">{buttons}</div>
       </div>
     );
   }

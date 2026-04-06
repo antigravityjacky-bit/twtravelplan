@@ -23,8 +23,8 @@ export default function PlaceCard({ place, isSelected, onClick }) {
           <h3 className="font-semibold text-slate-800 text-sm md:text-base leading-snug truncate">
             {place.name}
           </h3>
-          {place.nameEn && (
-            <p className="text-xs text-slate-400 mt-0.5 truncate">{place.nameEn}</p>
+          {place.description && (
+            <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{place.description}</p>
           )}
         </div>
         <span

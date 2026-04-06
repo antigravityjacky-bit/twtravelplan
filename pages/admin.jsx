@@ -5,30 +5,49 @@ import { usePlaces } from '../hooks/usePlaces';
 import PlaceForm from '../components/PlaceForm';
 import { CATEGORY_BADGE, CATEGORY_BORDER } from '../components/FilterBar';
 
-const CATEGORY_EMOJI = { Food: '🍜', Attraction: '🗺️', Hotel: '🏨', Bar: '🍸' };
+const CATEGORY_EMOJI = {
+  Breakfast:  '🍳',
+  Cafe:       '☕',
+  Restaurant: '🍽️',
+  Attraction: '🗺️',
+  Hotel:      '🏨',
+  Bar:        '🍸',
+  Food:       '🍜', // backward-compat
+};
+
+const CATEGORY_LABEL = {
+  Breakfast:  '早餐店',
+  Cafe:       '咖啡店',
+  Restaurant: '餐廳',
+  Attraction: 'Attraction',
+  Hotel:      'Hotel',
+  Bar:        'Bar',
+  Food:       'Food',
+};
+
+const STAT_CATEGORIES = ['Breakfast', 'Cafe', 'Restaurant', 'Attraction', 'Hotel', 'Bar'];
 
 export default function Admin() {
   const {
     places, loading, error, isSupabase,
-    addPlace, updatePlace, deletePlace, resetToDefaults,
+    addPlace, updatePlace, deletePlace,
   } = usePlaces();
 
-  const [formOpen, setFormOpen]       = useState(false);
-  const [editing, setEditing]         = useState(null);
+  const [formOpen, setFormOpen]           = useState(false);
+  const [editing, setEditing]             = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [search, setSearch]           = useState('');
-  const [resetConfirm, setResetConfirm] = useState(false);
-  const [saving, setSaving]           = useState(false);
-  const [toast, setToast]             = useState(null); // { msg, type }
+  const [search, setSearch]               = useState('');
+  const [saving, setSaving]               = useState(false);
+  const [toast, setToast]                 = useState(null);
 
   function showToast(msg, type = 'success') {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }
 
-  function openAdd()        { setEditing(null); setFormOpen(true); }
-  function openEdit(place)  { setEditing(place); setFormOpen(true); }
-  function closeForm()      { setFormOpen(false); setEditing(null); }
+  function openAdd()       { setEditing(null); setFormOpen(true); }
+  function openEdit(place) { setEditing(place); setFormOpen(true); }
+  function closeForm()     { setFormOpen(false); setEditing(null); }
 
   async function handleSave(data) {
     setSaving(true);
@@ -49,15 +68,6 @@ export default function Admin() {
     setConfirmDelete(null);
     if (err) { showToast(`刪除失敗：${err}`, 'error'); return; }
     showToast('已刪除地點 ✓');
-  }
-
-  async function handleReset() {
-    setSaving(true);
-    const { error: err } = await resetToDefaults();
-    setSaving(false);
-    setResetConfirm(false);
-    if (err) { showToast(`重設失敗：${err}`, 'error'); return; }
-    showToast('已重設為預設數據 ✓');
   }
 
   const filtered = places.filter((p) =>
@@ -97,20 +107,12 @@ export default function Admin() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setResetConfirm(true)}
-                className="px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-              >
-                重設預設數據
-              </button>
-              <button
-                onClick={openAdd}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors shadow-sm"
-              >
-                + 新增地點
-              </button>
-            </div>
+            <button
+              onClick={openAdd}
+              className="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors shadow-sm"
+            >
+              + 新增地點
+            </button>
           </div>
         </header>
 
@@ -118,20 +120,21 @@ export default function Admin() {
           {/* Error banner */}
           {error && (
             <div className="mb-6 px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm flex items-center gap-2">
-              <span>⚠️</span>
-              <span>{error}</span>
+              <span>⚠️</span><span>{error}</span>
               <button onClick={() => window.location.reload()} className="ml-auto underline text-xs">重試</button>
             </div>
           )}
 
           {/* Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            {['Food', 'Attraction', 'Hotel', 'Bar'].map((cat) => {
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
+            {STAT_CATEGORIES.map((cat) => {
               const count = places.filter((p) => p.category === cat).length;
               return (
-                <div key={cat} className={`bg-white rounded-2xl p-4 border-l-4 shadow-sm ${CATEGORY_BORDER[cat]}`}>
+                <div key={cat} className={`bg-white rounded-2xl p-3 border-l-4 shadow-sm ${CATEGORY_BORDER[cat]}`}>
                   <p className="text-2xl font-bold text-slate-800">{loading ? '–' : count}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{CATEGORY_EMOJI[cat]} {cat}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-tight">
+                    {CATEGORY_EMOJI[cat]} {CATEGORY_LABEL[cat]}
+                  </p>
                 </div>
               );
             })}
@@ -181,35 +184,25 @@ export default function Admin() {
                     <tr key={place.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3">
                         <p className="font-medium text-slate-800">{place.name}</p>
-                        {place.nameEn && (
-                          <p className="text-xs text-slate-400 mt-0.5">{place.nameEn}</p>
+                        {place.description && (
+                          <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{place.description}</p>
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center text-xs font-medium px-2 py-1 rounded-full ring-1 ${CATEGORY_BADGE[place.category]}`}>
-                          {CATEGORY_EMOJI[place.category]} {place.category}
+                        <span className={`inline-flex items-center text-xs font-medium px-2 py-1 rounded-full ring-1 ${CATEGORY_BADGE[place.category] ?? CATEGORY_BADGE.Food}`}>
+                          {CATEGORY_EMOJI[place.category] ?? '📍'} {CATEGORY_LABEL[place.category] ?? place.category}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500 hidden md:table-cell max-w-[200px]">
                         <p className="truncate">{place.address}</p>
                       </td>
                       <td className="px-4 py-3 text-slate-400 font-mono text-xs hidden sm:table-cell whitespace-nowrap">
-                        {place.lat}, {place.lng}
+                        {place.lat != null ? `${place.lat}, ${place.lng}` : '–'}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => openEdit(place)}
-                            className="px-2.5 py-1 rounded-lg text-xs text-slate-600 hover:bg-slate-100 transition-colors"
-                          >
-                            編輯
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(place)}
-                            className="px-2.5 py-1 rounded-lg text-xs text-rose-500 hover:bg-rose-50 transition-colors"
-                          >
-                            刪除
-                          </button>
+                          <button onClick={() => openEdit(place)} className="px-2.5 py-1 rounded-lg text-xs text-slate-600 hover:bg-slate-100 transition-colors">編輯</button>
+                          <button onClick={() => setConfirmDelete(place)} className="px-2.5 py-1 rounded-lg text-xs text-rose-500 hover:bg-rose-50 transition-colors">刪除</button>
                         </div>
                       </td>
                     </tr>
@@ -221,64 +214,19 @@ export default function Admin() {
         </main>
       </div>
 
-      {/* Add / Edit form modal */}
       {formOpen && (
-        <PlaceForm
-          initial={editing}
-          onSave={handleSave}
-          onCancel={closeForm}
-          saving={saving}
-        />
+        <PlaceForm initial={editing} onSave={handleSave} onCancel={closeForm} saving={saving} />
       )}
 
-      {/* Delete confirmation */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
             <p className="font-semibold text-slate-800">確定刪除？</p>
             <p className="text-sm text-slate-500 mt-1">「{confirmDelete.name}」刪除後不可恢復。</p>
             <div className="flex gap-3 mt-5">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                disabled={saving}
-                className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors disabled:opacity-50"
-              >
-                取消
-              </button>
-              <button
-                onClick={confirmDoDelete}
-                disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium hover:bg-rose-600 transition-colors disabled:opacity-50"
-              >
+              <button onClick={() => setConfirmDelete(null)} disabled={saving} className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors disabled:opacity-50">取消</button>
+              <button onClick={confirmDoDelete} disabled={saving} className="flex-1 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium hover:bg-rose-600 transition-colors disabled:opacity-50">
                 {saving ? '刪除中...' : '確認刪除'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reset confirmation */}
-      {resetConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
-            <p className="font-semibold text-slate-800">重設為預設數據？</p>
-            <p className="text-sm text-slate-500 mt-1">
-              所有自訂地點將被清除，恢復到原始 12 個示範地點。
-            </p>
-            <div className="flex gap-3 mt-5">
-              <button
-                onClick={() => setResetConfirm(false)}
-                disabled={saving}
-                className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors disabled:opacity-50"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleReset}
-                disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors disabled:opacity-50"
-              >
-                {saving ? '重設中...' : '確認重設'}
               </button>
             </div>
           </div>

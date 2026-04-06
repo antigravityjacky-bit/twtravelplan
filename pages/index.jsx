@@ -8,7 +8,15 @@ import PlaceList from '../components/PlaceList';
 
 const MapView = dynamic(() => import('../components/MapView'), { ssr: false });
 
-const CATEGORY_ICON = { Food: '🍜', Attraction: '🗺️', Hotel: '🏨', Bar: '🍸' };
+const CATEGORY_ICON = {
+  Breakfast:  '🍳',
+  Cafe:       '☕',
+  Restaurant: '🍽️',
+  Attraction: '🗺️',
+  Hotel:      '🏨',
+  Bar:        '🍸',
+  Food:       '🍜', // backward-compat
+};
 
 export default function Home() {
   const { places, loading } = usePlaces();
@@ -167,10 +175,12 @@ export default function Home() {
           <div className="hidden md:block absolute bottom-6 right-4 z-[1000] bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg px-4 py-3 text-xs space-y-1.5">
             <p className="font-semibold text-slate-600 mb-2">Legend</p>
             {[
-              { label: 'Food', color: '#F59E0B' },
-              { label: 'Attraction', color: '#3B82F6' },
-              { label: 'Hotel', color: '#8B5CF6' },
-              { label: 'Bar', color: '#F43F5E' },
+              { label: '🍳 早餐店',   color: '#FBBF24' },
+              { label: '☕ 咖啡店',   color: '#78716C' },
+              { label: '🍽️ 餐廳',    color: '#F97316' },
+              { label: '🗺️ Attraction', color: '#3B82F6' },
+              { label: '🏨 Hotel',    color: '#8B5CF6' },
+              { label: '🍸 Bar',      color: '#F43F5E' },
             ].map(({ label, color }) => (
               <div key={label} className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
