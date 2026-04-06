@@ -27,37 +27,47 @@ export const CATEGORY_BADGE = {
   Bar: 'bg-rose-50 text-rose-700 ring-rose-200',
 };
 
-export default function FilterBar({ activeCategory, onCategoryChange, counts }) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {CATEGORIES.map(({ label, value, color, ring }) => {
-        const isActive = activeCategory === value;
-        const count = value === 'All' ? counts.total : (counts[value] ?? 0);
-        return (
-          <button
-            key={value}
-            onClick={() => onCategoryChange(value)}
-            className={`
-              relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium
-              transition-all duration-200 select-none
-              ${isActive
-                ? `${color} shadow-md ring-2 ${ring} ring-offset-1`
-                : 'bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow-md'
-              }
-            `}
-          >
-            {label}
-            <span
-              className={`
-                text-xs font-semibold px-1.5 py-0.5 rounded-full
-                ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}
-              `}
-            >
-              {count}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
+// mobile prop: when true, renders as a single non-wrapping row (for horizontal scroll)
+export default function FilterBar({ activeCategory, onCategoryChange, counts, mobile = false }) {
+  const buttons = CATEGORIES.map(({ label, value, color, ring }) => {
+    const isActive = activeCategory === value;
+    const count = value === 'All' ? counts.total : (counts[value] ?? 0);
+    return (
+      <button
+        key={value}
+        onClick={() => onCategoryChange(value)}
+        className={`
+          relative flex items-center gap-1.5 rounded-full font-medium
+          transition-all duration-200 select-none whitespace-nowrap
+          ${mobile ? 'px-3 py-1.5 text-xs' : 'px-3.5 py-1.5 text-sm'}
+          ${isActive
+            ? `${color} shadow-md ring-2 ${ring} ring-offset-1`
+            : 'bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow-md'
+          }
+        `}
+      >
+        {label}
+        <span
+          className={`
+            text-xs font-semibold px-1.5 py-0.5 rounded-full
+            ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}
+          `}
+        >
+          {count}
+        </span>
+      </button>
+    );
+  });
+
+  if (mobile) {
+    return (
+      <div className="overflow-x-auto scrollbar-none -mx-4 px-4">
+        <div className="flex gap-2 w-max py-0.5">
+          {buttons}
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="flex flex-wrap gap-2">{buttons}</div>;
 }

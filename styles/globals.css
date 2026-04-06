@@ -25,6 +25,15 @@ body,
   background-color: #cbd5e1;
 }
 
+/* Hide scrollbar (used for mobile horizontal filter scroll) */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Leaflet map z-index fix */
 .leaflet-container {
   height: 100%;
@@ -38,4 +47,9 @@ body,
 }
 .place-card:hover {
   transform: translateY(-2px);
+}
+
+/* iOS safe area support for bottom tab bar */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
 }

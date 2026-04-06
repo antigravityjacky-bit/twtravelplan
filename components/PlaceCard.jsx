@@ -12,7 +12,7 @@ export default function PlaceCard({ place, isSelected, onClick }) {
     <div
       onClick={() => onClick(place)}
       className={`
-        place-card cursor-pointer rounded-2xl bg-white border-l-4 p-4
+        place-card cursor-pointer rounded-2xl bg-white border-l-4 p-3.5 md:p-4
         shadow-sm hover:shadow-md
         ${CATEGORY_BORDER[place.category]}
         ${isSelected ? 'ring-2 ring-offset-1 ring-slate-300 shadow-md' : ''}
@@ -20,7 +20,7 @@ export default function PlaceCard({ place, isSelected, onClick }) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-slate-800 text-base leading-snug truncate">
+          <h3 className="font-semibold text-slate-800 text-sm md:text-base leading-snug truncate">
             {place.name}
           </h3>
           {place.nameEn && (
