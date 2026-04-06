@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#__next {
+  height: 100%;
+}
+
+/* Custom scrollbar for the place list */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #e2e8f0;
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: #cbd5e1;
+}
+
+/* Leaflet map z-index fix */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Smooth transition for cards */
+.place-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.place-card:hover {
+  transform: translateY(-2px);
+}
