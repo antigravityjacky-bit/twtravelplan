@@ -91,10 +91,11 @@ export function usePlaces() {
       saveToStorage(next);
       return { error: null };
     }
+    const { id, ...fields } = updated; // strip id — cannot update a generated identity column
     const { error: err } = await supabase
       .from('places')
-      .update(updated)
-      .eq('id', updated.id);
+      .update(fields)
+      .eq('id', id);
     if (err) return { error: err.message };
     return { error: null };
   }
