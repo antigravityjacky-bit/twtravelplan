@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Head from 'next/head';
-import places from '../data/places';
+import Link from 'next/link';
+import { usePlaces } from '../hooks/usePlaces';
 import FilterBar from '../components/FilterBar';
 import PlaceList from '../components/PlaceList';
 
@@ -9,13 +10,14 @@ import PlaceList from '../components/PlaceList';
 const MapView = dynamic(() => import('../components/MapView'), { ssr: false });
 
 export default function Home() {
+  const { places } = usePlaces();
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedPlace, setSelectedPlace] = useState(null);
 
   const filteredPlaces = useMemo(() => {
     if (activeCategory === 'All') return places;
     return places.filter((p) => p.category === activeCategory);
-  }, [activeCategory]);
+  }, [activeCategory, places]);
 
   const counts = useMemo(() => {
     const c = { total: places.length };
@@ -23,7 +25,7 @@ export default function Home() {
       c[p.category] = (c[p.category] ?? 0) + 1;
     });
     return c;
-  }, []);
+  }, [places]);
 
   function handleCategoryChange(category) {
     setActiveCategory(category);
@@ -47,11 +49,19 @@ export default function Home() {
         <aside className="w-96 flex-shrink-0 flex flex-col bg-white shadow-lg z-10">
           {/* Header */}
           <div className="px-5 pt-6 pb-4 border-b border-slate-100">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-2xl">🇹🇼</span>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">
-                Taiwan Trip
-              </h1>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🇹🇼</span>
+                <h1 className="text-xl font-bold text-slate-800 tracking-tight">
+                  Taiwan Trip
+                </h1>
+              </div>
+              <Link
+                href="/admin"
+                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors px-2.5 py-1 rounded-lg hover:bg-slate-100"
+              >
+                ✏️ 管理地點
+              </Link>
             </div>
             <p className="text-xs text-slate-400 ml-10">
               {filteredPlaces.length} place{filteredPlaces.length !== 1 ? 's' : ''} · Taipei
