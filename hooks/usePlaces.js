@@ -29,6 +29,8 @@ export function usePlaces() {
   const isSupabase = !!supabase;
 
   // ── Fetch all places ──────────────────────────────────────────────────────
+
+  // Full fetch: shows loading spinner (initial load only)
   const fetchPlaces = useCallback(async () => {
     if (!isSupabase) {
       setPlaces(loadFromStorage());
@@ -49,25 +51,42 @@ export function usePlaces() {
     setLoading(false);
   }, [isSupabase]);
 
-  // ── Initial load + real-time subscription ────────────────────────────────
+  // Silent refresh: updates data without flashing the loading spinner
+  const refreshPlaces = useCallback(async () => {
+    if (!isSupabase) return;
+    const { data } = await supabase
+      .from('places')
+      .select('*')
+      .order('id', { ascending: true });
+    if (data) setPlaces(data);
+  }, [isSupabase]);
+
+  // ── Initial load + real-time subscription + visibility refetch ───────────
   useEffect(() => {
     fetchPlaces();
 
-    if (!supabase) return;
+    // Refetch when user switches back to this tab (cross-tab sync)
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') refreshPlaces();
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
 
-    // Real-time: any INSERT / UPDATE / DELETE on the places table
-    // automatically refreshes the list for all connected clients
+    if (!supabase) return () => document.removeEventListener('visibilitychange', handleVisibility);
+
     const channel = supabase
       .channel('places-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'places' },
-        () => fetchPlaces()
+        () => refreshPlaces()
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
-  }, [fetchPlaces]);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchPlaces, refreshPlaces]);
 
   // ── CRUD operations ───────────────────────────────────────────────────────
 
@@ -80,7 +99,7 @@ export function usePlaces() {
     }
     const { error: err } = await supabase.from('places').insert([place]);
     if (err) return { error: err.message };
-    await fetchPlaces();
+    await refreshPlaces();
     return { error: null };
   }
 
@@ -91,13 +110,15 @@ export function usePlaces() {
       saveToStorage(next);
       return { error: null };
     }
-    const { id, ...fields } = updated; // strip id — cannot update a generated identity column
-    const { error: err } = await supabase
-      .from('places')
-      .update(fields)
-      .eq('id', id);
-    if (err) return { error: err.message };
-    await fetchPlaces();
+    // Optimistic update: reflect change immediately before server confirms
+    const { id, ...fields } = updated;
+    setPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, ...fields } : p)));
+    const { error: err } = await supabase.from('places').update(fields).eq('id', id);
+    if (err) {
+      await refreshPlaces(); // revert on error
+      return { error: err.message };
+    }
+    await refreshPlaces();
     return { error: null };
   }
 
@@ -108,9 +129,13 @@ export function usePlaces() {
       saveToStorage(next);
       return { error: null };
     }
+    // Optimistic update
+    setPlaces((prev) => prev.filter((p) => p.id !== id));
     const { error: err } = await supabase.from('places').delete().eq('id', id);
-    if (err) return { error: err.message };
-    await fetchPlaces();
+    if (err) {
+      await refreshPlaces(); // revert on error
+      return { error: err.message };
+    }
     return { error: null };
   }
 
