@@ -61,9 +61,9 @@ export default function ItineraryDay({
   });
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
       {/* Day header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50 rounded-t-2xl">
         <h2 className="font-semibold text-slate-700 text-sm">
           Day {dayNumber}
           <span className="ml-2 text-xs font-normal text-slate-400">
@@ -113,7 +113,7 @@ export default function ItineraryDay({
         </button>
 
         {pickerOpen && (
-          <div className="absolute left-3 right-3 bottom-full mb-2 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
+          <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
             {/* Search */}
             <div className="px-3 pt-3 pb-2 border-b border-slate-100">
               <input

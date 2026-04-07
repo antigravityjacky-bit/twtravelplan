@@ -80,7 +80,7 @@ export function usePlaces() {
     }
     const { error: err } = await supabase.from('places').insert([place]);
     if (err) return { error: err.message };
-    // realtime subscription will refresh automatically
+    await fetchPlaces();
     return { error: null };
   }
 
@@ -97,6 +97,7 @@ export function usePlaces() {
       .update(fields)
       .eq('id', id);
     if (err) return { error: err.message };
+    await fetchPlaces();
     return { error: null };
   }
 
@@ -109,6 +110,7 @@ export function usePlaces() {
     }
     const { error: err } = await supabase.from('places').delete().eq('id', id);
     if (err) return { error: err.message };
+    await fetchPlaces();
     return { error: null };
   }
 
