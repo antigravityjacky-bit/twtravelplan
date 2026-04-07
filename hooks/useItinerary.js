@@ -21,18 +21,19 @@ function saveToStorage(items) {
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
 export function useItinerary() {
-  const [items, setItems] = useState([]); // [{ id, day_number, place_id, sort_order }]
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const isSupabase = !!supabase;
 
-  // ── Fetch all itinerary items ─────────────────────────────────────────────
+  // ── Full fetch (initial load, shows spinner) ──────────────────────────────
   const fetchItems = useCallback(async () => {
     if (!isSupabase) {
       setItems(loadFromStorage());
       setLoading(false);
       return;
     }
+    setLoading(true);
     const { data } = await supabase
       .from('itinerary_items')
       .select('*')
@@ -42,22 +43,42 @@ export function useItinerary() {
     setLoading(false);
   }, [isSupabase]);
 
-  // ── Initial load + real-time subscription ─────────────────────────────────
+  // ── Silent refresh (post-mutation, no spinner) ────────────────────────────
+  const refreshItems = useCallback(async () => {
+    if (!isSupabase) return;
+    const { data } = await supabase
+      .from('itinerary_items')
+      .select('*')
+      .order('day_number', { ascending: true })
+      .order('sort_order', { ascending: true });
+    if (data) setItems(data);
+  }, [isSupabase]);
+
+  // ── Initial load + realtime + visibilitychange ────────────────────────────
   useEffect(() => {
     fetchItems();
-    if (!supabase) return;
+
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') refreshItems();
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    if (!supabase) return () => document.removeEventListener('visibilitychange', handleVisibility);
 
     const channel = supabase
       .channel('itinerary-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'itinerary_items' },
-        () => fetchItems()
+        () => refreshItems()
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
-  }, [fetchItems]);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchItems, refreshItems]);
 
   // ── Derived: unique sorted day numbers ────────────────────────────────────
   const days = [...new Set(items.map((i) => i.day_number))].sort((a, b) => a - b);
@@ -77,8 +98,13 @@ export function useItinerary() {
       saveToStorage(next);
       return;
     }
+
+    // Optimistic update with temp id
+    const tempId = Date.now();
+    setItems((prev) => [...prev, { id: tempId, day_number, place_id, sort_order }]);
+
     await supabase.from('itinerary_items').insert([{ day_number, place_id, sort_order }]);
-    // realtime subscription will refresh
+    await refreshItems(); // replace temp id with real server id
   }
 
   async function removeItem(id) {
@@ -88,25 +114,32 @@ export function useItinerary() {
       saveToStorage(next);
       return;
     }
+
+    // Optimistic update
+    setItems((prev) => prev.filter((i) => i.id !== id));
     await supabase.from('itinerary_items').delete().eq('id', id);
+    await refreshItems();
   }
 
-  // Adds a new day (next number after current max)
   async function addDay() {
     const nextDay = days.length > 0 ? Math.max(...days) + 1 : 1;
+
     if (!isSupabase) {
-      // No items yet, just track the day number via a placeholder approach:
-      // We store a sentinel item with place_id = null to reserve the day slot.
       const sentinel = { id: Date.now(), day_number: nextDay, place_id: null, sort_order: -1 };
       const next = [...items, sentinel];
       setItems(next);
       saveToStorage(next);
       return;
     }
+
+    // Optimistic update
+    const tempId = Date.now();
+    setItems((prev) => [...prev, { id: tempId, day_number: nextDay, place_id: null, sort_order: -1 }]);
+
     await supabase.from('itinerary_items').insert([{ day_number: nextDay, place_id: null, sort_order: -1 }]);
+    await refreshItems();
   }
 
-  // Remove all items for a day
   async function removeDay(day_number) {
     if (!isSupabase) {
       const next = items.filter((i) => i.day_number !== day_number);
@@ -114,10 +147,13 @@ export function useItinerary() {
       saveToStorage(next);
       return;
     }
+
+    // Optimistic update
+    setItems((prev) => prev.filter((i) => i.day_number !== day_number));
     await supabase.from('itinerary_items').delete().eq('day_number', day_number);
+    await refreshItems();
   }
 
-  // After drag-end: newOrderedIds = item ids in the new order for that day
   async function reorderDay(day_number, newOrderedIds) {
     // Optimistic update
     const updated = items.map((item) => {
@@ -126,16 +162,18 @@ export function useItinerary() {
       return { ...item, sort_order: idx };
     });
     setItems(updated);
+
     if (!isSupabase) {
       saveToStorage(updated);
       return;
     }
-    // Batch update sort_order
+
     await Promise.all(
       newOrderedIds.map((id, idx) =>
         supabase.from('itinerary_items').update({ sort_order: idx }).eq('id', id)
       )
     );
+    await refreshItems();
   }
 
   return {
