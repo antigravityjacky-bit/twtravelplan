@@ -79,6 +79,12 @@ export default function Home() {
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
               </div>
               <Link
+                href="/itinerary"
+                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors px-2.5 py-1 rounded-lg hover:bg-slate-100"
+              >
+                📅 行程
+              </Link>
+              <Link
                 href="/admin"
                 className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors px-2.5 py-1 rounded-lg hover:bg-slate-100"
               >
@@ -131,12 +137,20 @@ export default function Home() {
               <span className="text-xl">🇹🇼</span>
               <h1 className="text-base font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
             </div>
-            <Link
-              href="/admin"
-              className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"
-            >
-              ✏️ 管理
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/itinerary"
+                className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"
+              >
+                📅 行程
+              </Link>
+              <Link
+                href="/admin"
+                className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"
+              >
+                ✏️ 管理
+              </Link>
+            </div>
           </div>
           {/* Horizontal scrollable filter */}
           <div className="px-4 pb-3">
