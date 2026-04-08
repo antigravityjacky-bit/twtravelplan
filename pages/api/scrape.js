@@ -1,16 +1,17 @@
 /**
  * GET /api/scrape?url=<instagram_url>
- * Attempts to extract Open Graph meta tags from an Instagram post URL.
+ * Attempts to extract Open Graph meta tags from an Instagram post or Reel URL.
  * Instagram actively blocks scraping; this is best-effort and may return nulls.
+ *
+ * Strategy (in order):
+ *  1. Fetch the main URL with a mobile Safari UA
+ *  2. If description is missing/generic, retry with the /embed/ variant
  */
 export default async function handler(req, res) {
   const { url } = req.query;
 
-  if (!url) {
-    return res.status(400).json({ error: 'Missing url parameter' });
-  }
+  if (!url) return res.status(400).json({ error: 'Missing url parameter' });
 
-  // Validate it looks like a URL
   let targetUrl;
   try {
     targetUrl = new URL(url);
@@ -18,17 +19,60 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid URL' });
   }
 
+  const og = await tryFetch(targetUrl.toString());
+
+  // If description looks generic, also try the /embed/ variant which often
+  // contains the full caption for Reels
+  const isGeneric =
+    !og.description ||
+    /watch this reel|view this post|a post shared/i.test(og.description);
+
+  if (isGeneric) {
+    const embedUrl = buildEmbedUrl(targetUrl);
+    if (embedUrl) {
+      const ogEmbed = await tryFetch(embedUrl);
+      if (ogEmbed.description && !isGenericDescription(ogEmbed.description)) {
+        og.description = ogEmbed.description;
+      }
+      // Keep original image if embed doesn't have one
+      if (!og.image && ogEmbed.image) og.image = ogEmbed.image;
+      if (!og.title && ogEmbed.title) og.title = ogEmbed.title;
+    }
+  }
+
+  return res.json({
+    image: og.image || null,
+    description: og.description || null,
+    title: og.title || null,
+  });
+}
+
+// Build /embed/ URL for Instagram posts and Reels
+function buildEmbedUrl(url) {
+  // /p/XXXX/ → /p/XXXX/embed/
+  // /reel/XXXX/ → /reel/XXXX/embed/
+  const path = url.pathname.replace(/\/?$/, '/embed/');
+  if (!path.match(/^\/(p|reel)\//)) return null;
+  return `${url.origin}${path}`;
+}
+
+function isGenericDescription(desc) {
+  return /watch this reel|view this post|a post shared/i.test(desc);
+}
+
+const MOBILE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
+  'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+async function tryFetch(url) {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(targetUrl.toString(), {
+    const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        // Impersonate a mobile Safari browser to maximise chance of getting OG tags
-        'User-Agent':
-          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
-          'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'User-Agent': MOBILE_UA,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
@@ -40,66 +84,53 @@ export default async function handler(req, res) {
     });
 
     clearTimeout(timeout);
-
-    if (!response.ok) {
-      return res.json({ image: null, description: null, title: null });
-    }
+    if (!response.ok) return {};
 
     const html = await response.text();
-    const og = extractOgTags(html);
-
-    return res.json({
-      image: og.image || null,
-      description: og.description || null,
-      title: og.title || null,
-    });
-  } catch (err) {
-    // Timeout or network error — return empty rather than crashing
-    return res.json({ image: null, description: null, title: null });
+    return extractOgTags(html);
+  } catch {
+    return {};
   }
 }
 
-/**
- * Extract all og: meta tag values from raw HTML using regex.
- * Handles both attribute orderings: property-first and content-first.
- */
 function extractOgTags(html) {
   const result = {};
-  const properties = ['image', 'description', 'title', 'site_name', 'url'];
+  const properties = ['image', 'description', 'title'];
 
   for (const prop of properties) {
     const value =
       getMetaContent(html, `og:${prop}`) ||
-      getMetaContent(html, `twitter:${prop}`);
-    if (value) result[prop] = decodeEntities(value);
+      getMetaContent(html, `twitter:${prop}`) ||
+      (prop === 'description' ? getMetaContent(html, 'description') : null) ||
+      (prop === 'title' ? getTagContent(html, 'title') : null);
+    if (value) result[prop] = decodeEntities(value.trim());
   }
 
   return result;
 }
 
 function getMetaContent(html, property) {
-  // Try: property="..." content="..."
-  const r1 = new RegExp(
-    `<meta[^>]+property=["']${escapeRegex(property)}["'][^>]+content=["']([^"']{1,2000})["']`,
-    'i'
-  );
-  // Try: content="..." property="..."  (reversed order)
-  const r2 = new RegExp(
-    `<meta[^>]+content=["']([^"']{1,2000})["'][^>]+property=["']${escapeRegex(property)}["']`,
-    'i'
-  );
-  // Also handle name= attribute (used by Twitter cards)
-  const r3 = new RegExp(
-    `<meta[^>]+name=["']${escapeRegex(property)}["'][^>]+content=["']([^"']{1,2000})["']`,
-    'i'
-  );
-  const r4 = new RegExp(
-    `<meta[^>]+content=["']([^"']{1,2000})["'][^>]+name=["']${escapeRegex(property)}["']`,
-    'i'
-  );
+  const patterns = [
+    // property="..." content="..."
+    new RegExp(`<meta[^>]+property=["']${escapeRegex(property)}["'][^>]+content=["']([^"']{1,3000})["']`, 'i'),
+    // content="..." property="..."
+    new RegExp(`<meta[^>]+content=["']([^"']{1,3000})["'][^>]+property=["']${escapeRegex(property)}["']`, 'i'),
+    // name="..." content="..."
+    new RegExp(`<meta[^>]+name=["']${escapeRegex(property)}["'][^>]+content=["']([^"']{1,3000})["']`, 'i'),
+    // content="..." name="..."
+    new RegExp(`<meta[^>]+content=["']([^"']{1,3000})["'][^>]+name=["']${escapeRegex(property)}["']`, 'i'),
+  ];
 
-  const match = html.match(r1) || html.match(r2) || html.match(r3) || html.match(r4);
-  return match ? match[1] : null;
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function getTagContent(html, tag) {
+  const m = html.match(new RegExp(`<${tag}[^>]*>([^<]{1,300})</${tag}>`, 'i'));
+  return m ? m[1] : null;
 }
 
 function decodeEntities(str) {

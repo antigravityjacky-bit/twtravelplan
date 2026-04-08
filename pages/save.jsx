@@ -145,6 +145,19 @@ export default function SavePage() {
     }
   }, []);
 
+  async function handlePasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      const trimmed = text.trim();
+      if (!trimmed) { showToast('剪貼簿是空的', 'error'); return; }
+      setIgUrl(trimmed);
+      runCapture(trimmed);
+    } catch {
+      // User denied permission or API unavailable — fall back to manual paste
+      showToast('無法讀取剪貼簿，請手動貼入連結', 'error');
+    }
+  }
+
   function handleUrlSubmit(e) {
     e.preventDefault();
     if (!igUrl.trim()) return;
@@ -234,32 +247,49 @@ export default function SavePage() {
               Instagram 連結
             </h2>
 
-            {/* iOS install hint — shown only when URL is empty and no share was received */}
+            {/* iOS instruction hint */}
             {!igUrl && scrapeStatus === 'idle' && (
               <div className="mb-4 p-3 bg-blue-50 rounded-xl text-xs text-blue-700 leading-relaxed">
-                <p className="font-semibold mb-1">📲 如何從 Instagram 直接分享？</p>
-                <ol className="list-decimal list-inside space-y-0.5">
-                  <li>用 <strong>Safari</strong> 打開這個網站</li>
-                  <li>底部「分享」→「加入主畫面」安裝 app</li>
-                  <li>之後在 Instagram 分享貼文，選「TW Trip」即可</li>
+                <p className="font-semibold mb-1.5">📱 最快方法：複製連結 → 貼上</p>
+                <ol className="list-decimal list-inside space-y-0.5 mb-2">
+                  <li>Instagram Reel → 右下角「分享」→「複製連結」</li>
+                  <li>回到這裡，按下方「📋 貼上 IG 連結」</li>
                 </ol>
-                <p className="mt-2 text-blue-600">或直接複製 Instagram 連結貼在下方 👇</p>
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-blue-500 font-medium">⚙️ 想用 iOS 分享按鈕自動開啟？</summary>
+                  <ol className="list-decimal list-inside space-y-0.5 mt-1.5">
+                    <li>用 <strong>Safari</strong> 打開這個網站</li>
+                    <li>底部分享 → 「加入主畫面」安裝</li>
+                    <li><strong>從主畫面開啟一次 app</strong>（必須！）</li>
+                    <li>Instagram → 分享 → 向左滑到「更多」→ 啟用「TW Trip」</li>
+                  </ol>
+                </details>
               </div>
             )}
+
+            {/* Clipboard paste button — primary iOS flow */}
+            <button
+              type="button"
+              onClick={handlePasteFromClipboard}
+              disabled={isLoading}
+              className="w-full mb-3 py-3 rounded-xl bg-slate-800 text-white text-sm font-semibold hover:bg-slate-900 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              📋 貼上 IG 連結（自動抓取）
+            </button>
 
             <form onSubmit={handleUrlSubmit} className="flex gap-2">
               <input
                 value={igUrl}
                 onChange={(e) => setIgUrl(e.target.value)}
-                placeholder="貼入 Instagram 貼文連結..."
+                placeholder="或手動貼入連結..."
                 className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               />
               <button
                 type="submit"
                 disabled={isLoading || !igUrl.trim()}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors disabled:opacity-40 flex-shrink-0"
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100 transition-colors disabled:opacity-40 flex-shrink-0"
               >
-                {isLoading ? '抓取中...' : '抓取'}
+                {isLoading ? '⏳' : '↵'}
               </button>
             </form>
 
