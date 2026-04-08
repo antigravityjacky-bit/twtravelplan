@@ -55,9 +55,15 @@ export default function SavePage() {
   const [confidence, setConfidence] = useState({});
   const [imgError, setImgError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [toast, setToast] = useState(null);
   const [errors, setErrors] = useState({});
+  const [isStandalone, setIsStandalone] = useState(null);
   const hasAutoFetched = useRef(false);
+
+  useEffect(() => {
+    setIsStandalone(!!window.navigator.standalone);
+  }, []);
 
   function showToast(msg, type = 'success') {
     setToast({ msg, type });
@@ -174,6 +180,21 @@ export default function SavePage() {
     setConfidence((c) => ({ ...c, coords: 'manual' }));
   }
 
+  async function handleGeocode() {
+    const query = [form.name.trim(), form.address.trim()].filter(Boolean).join(' ');
+    if (!query) return;
+    setGeocoding(true);
+    const coords = await geocodeAddress(query);
+    setGeocoding(false);
+    if (coords) {
+      setForm((f) => ({ ...f, lat: coords.lat, lng: coords.lng }));
+      setConfidence((c) => ({ ...c, coords: 'low' }));
+      setErrors((e) => ({ ...e, coords: undefined }));
+    } else {
+      showToast('找不到位置，試試加上「台灣」或更完整地址', 'error');
+    }
+  }
+
   function validate() {
     const e = {};
     if (!form.name.trim()) e.name = '必填';
@@ -247,23 +268,28 @@ export default function SavePage() {
               Instagram 連結
             </h2>
 
+            {/* Standalone mode detector — shown only in browser (not installed PWA) */}
+            {isStandalone === false && (
+              <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 leading-relaxed">
+                <p className="font-semibold mb-1">⚠️ 你正在 Safari 瀏覽器中開啟（非 App 模式）</p>
+                <p>如要在 Instagram 分享時直接跳到這裡：</p>
+                <ol className="list-decimal list-inside space-y-0.5 mt-1">
+                  <li><strong>先刪除</strong>主畫面上舊的「TW Trip」圖示</li>
+                  <li>用 Safari 打開此頁 → 底部分享 → 「加入主畫面」重新安裝</li>
+                  <li><strong>從主畫面圖示開啟一次</strong>（激活 App 模式）</li>
+                  <li>Instagram → 分享 → 滑到底 → 「更多」→ 開啟「TW Trip」</li>
+                </ol>
+              </div>
+            )}
+
             {/* iOS instruction hint */}
             {!igUrl && scrapeStatus === 'idle' && (
               <div className="mb-4 p-3 bg-blue-50 rounded-xl text-xs text-blue-700 leading-relaxed">
                 <p className="font-semibold mb-1.5">📱 最快方法：複製連結 → 貼上</p>
-                <ol className="list-decimal list-inside space-y-0.5 mb-2">
+                <ol className="list-decimal list-inside space-y-0.5">
                   <li>Instagram Reel → 右下角「分享」→「複製連結」</li>
                   <li>回到這裡，按下方「📋 貼上 IG 連結」</li>
                 </ol>
-                <details className="mt-1">
-                  <summary className="cursor-pointer text-blue-500 font-medium">⚙️ 想用 iOS 分享按鈕自動開啟？</summary>
-                  <ol className="list-decimal list-inside space-y-0.5 mt-1.5">
-                    <li>用 <strong>Safari</strong> 打開這個網站</li>
-                    <li>底部分享 → 「加入主畫面」安裝</li>
-                    <li><strong>從主畫面開啟一次 app</strong>（必須！）</li>
-                    <li>Instagram → 分享 → 向左滑到「更多」→ 啟用「TW Trip」</li>
-                  </ol>
-                </details>
               </div>
             )}
 
@@ -407,16 +433,32 @@ export default function SavePage() {
                   <label className="text-sm font-semibold text-slate-700">🗺️ 位置</label>
                   <Badge
                     confidence={confidence.coords ?? 'none'}
-                    labels={{ low: '自動定位（請確認）', manual: '手動選擇', none: '請點選地圖' }}
+                    labels={{ low: '自動定位（請確認）', manual: '手動選擇', none: '請在地圖點選' }}
                   />
                 </div>
 
-                <input
-                  value={form.address}
-                  onChange={(e) => set('address', e.target.value)}
-                  placeholder="地址或區域（選填）"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                />
+                {/* Address input + geocode button */}
+                <div className="flex gap-2">
+                  <input
+                    value={form.address}
+                    onChange={(e) => set('address', e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleGeocode(); } }}
+                    placeholder="輸入地址或地點名稱，按🔍自動定位"
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGeocode}
+                    disabled={geocoding || (!form.address.trim() && !form.name.trim())}
+                    className="px-4 py-2.5 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 flex-shrink-0 flex items-center gap-1.5"
+                  >
+                    {geocoding
+                      ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      : '🔍'}
+                    {geocoding ? '搜尋中' : '定位'}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 -mt-1">輸入地名（中文或英文）→ 按定位 → 地圖 pin 自動跳到該位置</p>
 
                 {/* Map */}
                 <div className={`rounded-xl overflow-hidden border ${errors.coords ? 'border-rose-300' : 'border-slate-200'}`}>
@@ -431,10 +473,10 @@ export default function SavePage() {
 
                 {form.lat != null && form.lng != null ? (
                   <p className="text-xs text-slate-400 text-center">
-                    📍 {form.lat.toFixed(5)}, {form.lng.toFixed(5)} · 可再點地圖調整位置
+                    📍 {form.lat.toFixed(5)}, {form.lng.toFixed(5)} · 可再點地圖微調位置
                   </p>
                 ) : (
-                  <p className="text-xs text-slate-400 text-center">點擊地圖放置地點 pin</p>
+                  <p className="text-xs text-slate-400 text-center">輸入地名按定位，或直接點擊地圖放 pin</p>
                 )}
               </section>
 
