@@ -95,15 +95,13 @@ export default function Admin() {
         <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
           <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Link href="/" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">
-                ← 返回地圖
-              </Link>
+              <Link href="/" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">← 地圖</Link>
               <span className="text-slate-200">|</span>
-              <Link href="/itinerary" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">
-                📅 行程
-              </Link>
+              <Link href="/itinerary" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">📅 行程</Link>
               <span className="text-slate-200">|</span>
-              <h1 className="font-bold text-slate-800">🇹🇼 行程管理</h1>
+              <Link href="/accommodations" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">🏨 住宿</Link>
+              <span className="text-slate-200">|</span>
+              <h1 className="font-bold text-slate-800">✏️ 管理地點</h1>
               {isSupabase && (
                 <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full ring-1 ring-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />

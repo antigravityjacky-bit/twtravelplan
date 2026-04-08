@@ -276,19 +276,10 @@ export default function Itinerary() {
                 <span className="text-2xl">🇹🇼</span>
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
               </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/"
-                  className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100"
-                >
-                  🗺️ 地圖
-                </Link>
-                <Link
-                  href="/admin"
-                  className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100"
-                >
-                  ✏️ 管理
-                </Link>
+              <div className="flex items-center gap-1">
+                <Link href="/" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">🗺️ 地圖</Link>
+                <Link href="/accommodations" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">🏨 住宿</Link>
+                <Link href="/admin" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">✏️ 管理</Link>
               </div>
             </div>
             <p className="text-xs text-slate-400 ml-10">🗂️ 地點庫</p>
@@ -313,12 +304,10 @@ export default function Itinerary() {
               <span className="text-slate-200 text-sm">|</span>
               <span className="text-base font-bold text-slate-800">📅 行程規劃</span>
             </div>
-            <Link
-              href="/admin"
-              className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"
-            >
-              ✏️ 管理
-            </Link>
+            <div className="flex items-center gap-1.5">
+              <Link href="/accommodations" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">🏨</Link>
+              <Link href="/admin" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg">✏️ 管理</Link>
+            </div>
           </div>
         </div>
 

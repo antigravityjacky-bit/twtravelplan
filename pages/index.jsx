@@ -78,18 +78,11 @@ export default function Home() {
                 <span className="text-2xl">🇹🇼</span>
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
               </div>
-              <Link
-                href="/itinerary"
-                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors px-2.5 py-1 rounded-lg hover:bg-slate-100"
-              >
-                📅 行程
-              </Link>
-              <Link
-                href="/admin"
-                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors px-2.5 py-1 rounded-lg hover:bg-slate-100"
-              >
-                ✏️ 管理地點
-              </Link>
+              <div className="flex items-center gap-1">
+                <Link href="/itinerary" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">📅 行程</Link>
+                <Link href="/accommodations" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">🏨 住宿</Link>
+                <Link href="/admin" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">✏️ 管理</Link>
+              </div>
             </div>
             <p className="text-xs text-slate-400 ml-10">
               {filteredPlaces.length} place{filteredPlaces.length !== 1 ? 's' : ''} · Taipei
@@ -137,13 +130,9 @@ export default function Home() {
               <span className="text-xl">🇹🇼</span>
               <h1 className="text-base font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
             </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href="/itinerary"
-                className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"
-              >
-                📅 行程
-              </Link>
+            <div className="flex items-center gap-1.5">
+              <Link href="/itinerary" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">📅</Link>
+              <Link href="/accommodations" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">🏨</Link>
               <Link
                 href="/admin"
                 className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"
