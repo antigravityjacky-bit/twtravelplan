@@ -279,6 +279,7 @@ export default function Itinerary() {
               <div className="flex items-center gap-1">
                 <Link href="/" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">🗺️ 地圖</Link>
                 <Link href="/accommodations" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">🏨 住宿</Link>
+                <Link href="/save" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">📸 IG</Link>
                 <Link href="/admin" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">✏️ 管理</Link>
               </div>
             </div>
@@ -306,6 +307,7 @@ export default function Itinerary() {
             </div>
             <div className="flex items-center gap-1.5">
               <Link href="/accommodations" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">🏨</Link>
+              <Link href="/save" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">📸</Link>
               <Link href="/admin" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg">✏️ 管理</Link>
             </div>
           </div>

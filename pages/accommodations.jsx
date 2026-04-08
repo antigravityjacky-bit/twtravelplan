@@ -88,6 +88,8 @@ export default function Accommodations() {
               <span className="text-slate-200 flex-shrink-0">|</span>
               <span className="font-bold text-slate-800 flex-shrink-0">🏨 住宿</span>
               <span className="text-slate-200 flex-shrink-0">|</span>
+              <Link href="/save" className="text-slate-400 hover:text-slate-600 transition-colors text-sm flex-shrink-0">📸 IG</Link>
+              <span className="text-slate-200 flex-shrink-0">|</span>
               <Link href="/admin" className="text-slate-400 hover:text-slate-600 transition-colors text-sm flex-shrink-0">
                 ✏️ 管理
               </Link>
