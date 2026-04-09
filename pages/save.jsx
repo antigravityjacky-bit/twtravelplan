@@ -59,10 +59,25 @@ export default function SavePage() {
   const [toast, setToast] = useState(null);
   const [errors, setErrors] = useState({});
   const [isStandalone, setIsStandalone] = useState(null);
+  const [clipboardPrompt, setClipboardPrompt] = useState(null); // { url } | null
   const hasAutoFetched = useRef(false);
 
+  // Detect standalone mode + auto-read clipboard when opened as PWA
   useEffect(() => {
-    setIsStandalone(!!window.navigator.standalone);
+    const standalone = !!window.navigator.standalone;
+    setIsStandalone(standalone);
+
+    if (!standalone) return;
+    // In PWA mode: try to read clipboard for an IG link (no query params means
+    // user opened the app manually, not via Web Share Target)
+    if (hasAutoFetched.current) return;
+    navigator.clipboard.readText().then((text) => {
+      const trimmed = text?.trim();
+      if (trimmed && trimmed.includes('instagram.com') && !hasAutoFetched.current) {
+        setClipboardPrompt({ url: trimmed });
+      }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function showToast(msg, type = 'success') {
@@ -208,7 +223,8 @@ export default function SavePage() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     setSaving(true);
-    const { error: err } = await addPlace({
+
+    const base = {
       name:        form.name.trim(),
       nameEn:      form.nameEn.trim(),
       category:    form.category,
@@ -216,13 +232,26 @@ export default function SavePage() {
       description: form.description.trim(),
       lat:         form.lat,
       lng:         form.lng,
-      image_url:   form.image_url.trim(),
-      ig_url:      form.ig_url.trim(),
-    });
-    setSaving(false);
+    };
 
-    if (err) {
-      showToast(`儲存失敗：${err}`, 'error');
+    // Try with new columns first; if they don't exist yet, fall back to base fields
+    let result = await addPlace({ ...base, image_url: form.image_url.trim(), ig_url: form.ig_url.trim() });
+
+    const missingColumn = result.error &&
+      (result.error.includes('ig_url') || result.error.includes('image_url') || result.error.includes('schema cache'));
+    if (missingColumn) {
+      result = await addPlace(base);
+      if (!result.error) {
+        setSaving(false);
+        showToast('已儲存！（提示：執行 Supabase SQL 可儲存圖片連結）');
+        setTimeout(() => router.push('/'), 1800);
+        return;
+      }
+    }
+
+    setSaving(false);
+    if (result.error) {
+      showToast(`儲存失敗：${result.error}`, 'error');
     } else {
       showToast('已儲存！正在跳轉到地圖...');
       setTimeout(() => router.push('/'), 1200);
@@ -268,28 +297,63 @@ export default function SavePage() {
               Instagram 連結
             </h2>
 
+            {/* Clipboard prompt — shown in standalone (PWA) mode when IG link detected */}
+            {clipboardPrompt && scrapeStatus === 'idle' && (
+              <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <p className="text-xs font-semibold text-emerald-800 mb-1">📋 偵測到剪貼簿中的 IG 連結</p>
+                <p className="text-xs text-emerald-600 mb-3 break-all line-clamp-2">{clipboardPrompt.url}</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const url = clipboardPrompt.url;
+                      setClipboardPrompt(null);
+                      hasAutoFetched.current = true;
+                      setIgUrl(url);
+                      runCapture(url);
+                    }}
+                    className="flex-1 py-2.5 bg-emerald-500 text-white text-sm font-semibold rounded-xl hover:bg-emerald-600 transition-colors"
+                  >
+                    ✅ 開始抓取
+                  </button>
+                  <button
+                    onClick={() => setClipboardPrompt(null)}
+                    className="px-4 py-2.5 border border-slate-200 text-sm text-slate-500 rounded-xl hover:bg-slate-50 transition-colors"
+                  >
+                    忽略
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Standalone mode detector — shown only in browser (not installed PWA) */}
-            {isStandalone === false && (
+            {isStandalone === false && scrapeStatus === 'idle' && !igUrl && (
               <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 leading-relaxed">
-                <p className="font-semibold mb-1">⚠️ 你正在 Safari 瀏覽器中開啟（非 App 模式）</p>
-                <p>如要在 Instagram 分享時直接跳到這裡：</p>
-                <ol className="list-decimal list-inside space-y-0.5 mt-1">
-                  <li><strong>先刪除</strong>主畫面上舊的「TW Trip」圖示</li>
-                  <li>用 Safari 打開此頁 → 底部分享 → 「加入主畫面」重新安裝</li>
-                  <li><strong>從主畫面圖示開啟一次</strong>（激活 App 模式）</li>
-                  <li>Instagram → 分享 → 滑到底 → 「更多」→ 開啟「TW Trip」</li>
-                </ol>
+                <p className="font-semibold mb-1">⚠️ 正在 Safari 瀏覽器開啟（非 App 模式）</p>
+                <p className="mb-1.5">最可靠方法 👇 複製連結 → 回來按「貼上」按鈕，不需要安裝。</p>
+                <details>
+                  <summary className="cursor-pointer text-amber-700 font-medium">想從 IG 分享直接打開？（需安裝）</summary>
+                  <ol className="list-decimal list-inside space-y-0.5 mt-1.5">
+                    <li>用 <strong>Safari</strong> 打開此網站</li>
+                    <li>底部 □↑ 分享鍵 → 向下滑找「<strong>加入主畫面</strong>」（不是「加入書籤」）</li>
+                    <li>從主畫面圖示開啟一次</li>
+                    <li>Instagram → 分享 → 更多 → 找「TW Trip」啟用</li>
+                    <li>⚠️ iOS 並非所有版本都支援，若看不到屬正常</li>
+                  </ol>
+                </details>
               </div>
             )}
 
             {/* iOS instruction hint */}
-            {!igUrl && scrapeStatus === 'idle' && (
+            {!igUrl && scrapeStatus === 'idle' && !clipboardPrompt && (
               <div className="mb-4 p-3 bg-blue-50 rounded-xl text-xs text-blue-700 leading-relaxed">
-                <p className="font-semibold mb-1.5">📱 最快方法：複製連結 → 貼上</p>
+                <p className="font-semibold mb-1">📱 使用方法</p>
                 <ol className="list-decimal list-inside space-y-0.5">
-                  <li>Instagram Reel → 右下角「分享」→「複製連結」</li>
-                  <li>回到這裡，按下方「📋 貼上 IG 連結」</li>
+                  <li>Instagram Reel → 右下「分享」→「複製連結」</li>
+                  <li>回到這裡 → 按「📋 貼上 IG 連結」</li>
                 </ol>
+                {isStandalone && (
+                  <p className="mt-1.5 text-emerald-600 font-medium">✅ App 模式：下次複製連結後開啟 app 會自動偵測</p>
+                )}
               </div>
             )}
 
