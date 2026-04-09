@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 
@@ -35,9 +35,10 @@ function createPin(category) {
   });
 }
 
-// Click handler + fly-to when lat/lng changes
+// Handles click events AND fly-to when lat/lng change
 function MapController({ lat, lng, onMapClick }) {
   const map = useMap();
+  const prevCoords = useRef({ lat, lng });
 
   useMapEvents({
     click(e) {
@@ -46,23 +47,30 @@ function MapController({ lat, lng, onMapClick }) {
   });
 
   useEffect(() => {
-    if (lat != null && lng != null) {
-      map.flyTo([lat, lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lng]);
+    if (lat == null || lng == null) return;
+    // Only fly if coordinates actually changed
+    if (prevCoords.current.lat === lat && prevCoords.current.lng === lng) return;
+    prevCoords.current = { lat, lng };
+    map.flyTo([lat, lng], Math.max(map.getZoom(), 15), { animate: true, duration: 0.8 });
+  });
 
   return null;
 }
 
 export default function SaveMap({ lat, lng, category, onMapClick }) {
-  // Default center: Taipei
-  const center = lat != null && lng != null ? [lat, lng] : [25.0478, 121.5319];
+  const hasCoords = lat != null && lng != null;
+  const center = hasCoords ? [lat, lng] : [25.0478, 121.5319]; // Default: Taipei
+
+  // When coordinates are set for the first time, remount the MapContainer so
+  // Leaflet re-initialises with the correct center (Leaflet ignores prop changes
+  // to `center` after the first render).
+  const mapKey = hasCoords ? 'with-pin' : 'no-pin';
 
   return (
     <MapContainer
+      key={mapKey}
       center={center}
-      zoom={lat != null ? 15 : 12}
+      zoom={hasCoords ? 15 : 12}
       style={{ height: '260px', width: '100%' }}
       scrollWheelZoom={false}
     >
@@ -71,7 +79,7 @@ export default function SaveMap({ lat, lng, category, onMapClick }) {
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
       />
       <MapController lat={lat} lng={lng} onMapClick={onMapClick} />
-      {lat != null && lng != null && (
+      {hasCoords && (
         <Marker position={[lat, lng]} icon={createPin(category)} />
       )}
     </MapContainer>
