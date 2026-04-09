@@ -143,21 +143,8 @@ export default function SavePage() {
       newForm.category = parsed.category;
       newConf.category = parsed.categoryConfidence;
 
-      // Step 4: Geocode if we have a location hint
-      const searchQuery = [parsed.name, parsed.location].filter(Boolean).join(' ');
-      if (searchQuery) {
-        const coords = await geocodeAddress(searchQuery);
-        if (coords) {
-          newForm.lat = coords.lat;
-          newForm.lng = coords.lng;
-          newForm.address = parsed.location || '';
-          newConf.coords = 'low';
-        } else {
-          newConf.coords = 'none';
-        }
-      } else {
-        newConf.coords = 'none';
-      }
+      // Coords intentionally not auto-filled — use Google Maps flow for accuracy
+      newConf.coords = 'none';
 
       setForm(newForm);
       setConfidence(newConf);
