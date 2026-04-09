@@ -221,7 +221,21 @@ export default function SavePage() {
         if (data.lat) {
           applyMapsResult({ lat: data.lat, lng: data.lng }, data.resolvedUrl || url);
         } else {
-          showToast('無法解析，請複製 Google Maps 網址列的完整連結試試', 'error');
+          // Short URL resolution failed — try Nominatim geocoding from place name as fallback
+          const fallbackName = form.name.trim() || form.address.trim();
+          if (fallbackName) {
+            setMapsImporting(true);
+            const nmCoords = await geocodeAddress(fallbackName);
+            setMapsImporting(false);
+            if (nmCoords) {
+              applyMapsResult(nmCoords, url);
+              showToast('⚠️ 短網址解析失敗，改用地點名稱定位（請在地圖確認位置）');
+            } else {
+              showToast('短網址無法解析。請在 Google Maps 分享時改用「複製連結」→ 貼上完整網址', 'error');
+            }
+          } else {
+            showToast('短網址無法解析。請在 Google Maps 分享時改用「複製連結」→ 貼上完整網址', 'error');
+          }
         }
       } catch {
         showToast('解析失敗，請稍後再試', 'error');
@@ -590,7 +604,10 @@ export default function SavePage() {
                   {/* Step 2 — paste Google Maps share link */}
                   <div className="space-y-1.5">
                     <p className="text-xs text-slate-500">
-                      找到後：Google Maps → 右上 ⋯ → <strong>分享</strong> → <strong>複製連結</strong> → 貼在這裡 ↓
+                      找到後：右上 ⋯ → <strong>分享</strong> → <strong>複製連結</strong> → 貼在這裡 ↓
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      短網址解析失敗時：Safari 打開連結 → 複製網址列完整 URL（含 @lat,lng）
                     </p>
                     <div className="flex gap-2">
                       <input

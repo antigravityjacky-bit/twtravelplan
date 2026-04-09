@@ -1,151 +1,234 @@
 /**
  * GET /api/resolve-maps?url=<google_maps_url>
  *
- * Resolves a Google Maps URL (including maps.app.goo.gl Firebase Dynamic Links)
+ * Resolves any Google Maps URL — including maps.app.goo.gl Firebase Dynamic Links —
  * and extracts lat/lng coordinates.
  *
- * maps.app.goo.gl links are Firebase Dynamic Links — they return a 200 HTML page
- * with JavaScript that redirects the browser. Node fetch won't execute that JS,
- * so we must scan the HTML for embedded Google Maps URLs with coordinates.
+ * maps.app.goo.gl links are Firebase Dynamic Links. They may:
+ *  (a) Return an HTTP 301/302 redirect directly to the Google Maps page, OR
+ *  (b) Return a 200 HTML page that embeds the destination in JS / meta tags
+ *      (this happens when Firebase can't determine the client device type)
+ *
+ * The HTML embed contains coordinates in several places:
+ *  - <meta property="al:ios:url" content="comgooglemaps://?center=lat,lng&q=...">
+ *  - <meta property="al:android:url" content="google.navigation:q=lat,lng">
+ *  - JS variables: continueUrl / deepLinkUrl / fallbackUrl
+ *  - Embedded google.com/maps URLs with @lat,lng in the path
  */
 
-const DESKTOP_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-const MOBILE_UA =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
-  'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+const UAS = [
+  // Googlebot — often gets a clean 301 to the Maps page
+  'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+  // Desktop Chrome
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  // curl — minimal UA, sometimes triggers simpler redirect
+  'curl/7.88.1',
+  // Mobile Safari
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+];
 
 export default async function handler(req, res) {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'Missing url' });
 
-  // Try desktop UA first — more likely to get a clean web redirect
-  const result =
-    (await tryResolve(url, DESKTOP_UA)) ||
-    (await tryResolve(url, MOBILE_UA));
+  for (const ua of UAS) {
+    const result = await tryResolve(url, ua);
+    if (result?.lat != null) return res.json(result);
+  }
 
-  if (result?.lat != null) return res.json(result);
   return res.json({ error: 'Could not extract coordinates from this link' });
 }
 
-async function tryResolve(url, ua) {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 9000);
+// ─── Main resolution pipeline ─────────────────────────────────────────────
 
-    // ── Strategy 1: HTTP redirect (Location header) ───────────────────────
+async function tryResolve(startUrl, ua) {
+  // Strategy A: manually follow redirects hop-by-hop (up to 6 hops)
+  const fromRedirects = await followRedirects(startUrl, ua);
+  if (fromRedirects?.lat != null) return fromRedirects;
+
+  // Strategy B: let fetch follow all redirects, then scan response URL + HTML
+  return fetchAndScan(startUrl, ua);
+}
+
+async function followRedirects(startUrl, ua, maxHops = 6) {
+  let current = startUrl;
+  const visited = new Set();
+
+  for (let hop = 0; hop < maxHops; hop++) {
+    if (visited.has(current)) break;
+    visited.add(current);
+
+    // Check if the current URL itself contains coordinates
+    const urlCoords = extractCoordsFromUrl(current);
+    if (urlCoords) return urlCoords;
+
     try {
-      const r1 = await fetch(url, {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+
+      const r = await fetch(current, {
         signal: controller.signal,
         redirect: 'manual',
         headers: { 'User-Agent': ua },
       });
-      if (r1.status >= 300 && r1.status < 400) {
-        const loc = r1.headers.get('location');
-        if (loc) {
-          const coords = extractCoords(resolveUrl(loc, url));
-          if (coords) { clearTimeout(timeout); return coords; }
-        }
-      }
-    } catch { /* continue */ }
+      clearTimeout(timer);
 
-    // ── Strategy 2: Follow redirects, check response.url ─────────────────
-    const r2 = await fetch(url, {
+      if (r.status >= 300 && r.status < 400) {
+        const loc = r.headers.get('location');
+        if (!loc) break;
+        current = absoluteUrl(loc, current);
+        continue; // next hop
+      }
+
+      if (r.status === 200) {
+        // Final destination — scan the HTML
+        const html = await r.text();
+        return extractCoordsFromHtml(html, current);
+      }
+
+      break;
+    } catch {
+      break;
+    }
+  }
+  return null;
+}
+
+async function fetchAndScan(url, ua) {
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 8000);
+
+    const r = await fetch(url, {
       signal: controller.signal,
       redirect: 'follow',
       headers: { 'User-Agent': ua },
     });
-    clearTimeout(timeout);
 
-    const finalUrl = r2.url;
-    const urlCoords = extractCoords(finalUrl);
+    // Check the resolved URL first
+    const urlCoords = extractCoordsFromUrl(r.url);
     if (urlCoords) return urlCoords;
 
-    // ── Strategy 3: Scan HTML for embedded Google Maps URLs ───────────────
-    // maps.app.goo.gl is a Firebase Dynamic Link — a 200 HTML page with JS
-    // that redirects. The destination URL is embedded in the HTML source.
-    const html = await r2.text();
-    return extractCoordsFromHtml(html, finalUrl);
+    const html = await r.text();
+    return extractCoordsFromHtml(html, r.url);
   } catch {
     return null;
   }
 }
 
-// ─── Coordinate extraction helpers ────────────────────────────────────────
+// ─── Coordinate extraction from URLs ─────────────────────────────────────
 
-function extractCoords(url) {
-  if (!url) return null;
-  const decoded = safeDecodeURI(url);
+function extractCoordsFromUrl(raw) {
+  if (!raw) return null;
+  const url = safeDecodeURIComponent(raw);
 
   // @lat,lng[,zoom] — standard Google Maps format
-  const at = decoded.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (at) return { lat: parseFloat(at[1]), lng: parseFloat(at[2]), resolvedUrl: url };
+  const at = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (at) return coords(at[1], at[2], raw);
 
-  // ?q=lat,lng
-  const q = decoded.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (q) return { lat: parseFloat(q[1]), lng: parseFloat(q[2]), resolvedUrl: url };
+  // ?q=lat,lng or &q=lat,lng
+  const q = url.match(/[?&]q=(-?\d+\.\d+)[,+](-?\d+\.\d+)/);
+  if (q) return coords(q[1], q[2], raw);
 
   // ?ll=lat,lng
-  const ll = decoded.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (ll) return { lat: parseFloat(ll[1]), lng: parseFloat(ll[2]), resolvedUrl: url };
+  const ll = url.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (ll) return coords(ll[1], ll[2], raw);
+
+  // ?center=lat,lng (used in some sharing formats)
+  const center = url.match(/[?&]center=(-?\d+\.\d+)[,%20]+(-?\d+\.\d+)/);
+  if (center) return coords(center[1], center[2], raw);
 
   return null;
 }
+
+// ─── Coordinate extraction from HTML ─────────────────────────────────────
 
 function extractCoordsFromHtml(html, baseUrl) {
-  // 1. All google.com/maps URLs embedded in the HTML (JavaScript, links, etc.)
-  const mapUrlRe = /https?:\/\/(?:www\.)?(?:maps\.google\.com|google\.com\/maps)[^\s"'<>\\]*/g;
-  const candidates = html.match(mapUrlRe) || [];
-  for (const u of candidates) {
-    const coords = extractCoords(safeDecodeURI(u));
-    if (coords) return coords;
+  // 1. ── comgooglemaps:// deep links ──────────────────────────────────────
+  //    Firebase Dynamic Link HTML contains these in <meta property="al:ios:url">
+  //    and in JavaScript. They reliably have the place coordinates.
+  //
+  //    Example:
+  //      <meta property="al:ios:url"
+  //            content="comgooglemaps://?center=25.0478%2C121.5319&q=PlaceName">
+  //
+  const cgmPattern = /comgooglemaps:\/\/[^\s"'<>\\]*/g;
+  for (const raw of (html.match(cgmPattern) || [])) {
+    const link = safeDecodeURIComponent(raw.replace(/\\u003d/g, '=').replace(/\\u0026/g, '&'));
+    const c = extractCGMCoords(link);
+    if (c) return { ...c, resolvedUrl: baseUrl };
   }
 
-  // 2. Firebase Dynamic Link patterns — the destination URL in JS variables
-  const patterns = [
-    // continueUrl = "https://www.google.com/maps/..."
-    /(?:continueUrl|deepLinkUrl|redirectUrl|fallbackUrl)\s*[=:]\s*["']([^"']+google\.com\/maps[^"']+)["']/i,
-    // Any quoted string containing google.com/maps/@lat,lng
-    /["'`](https?:\/\/[^"'`]*google\.com\/maps[^"'`]*@-?\d+\.\d+,-?\d+\.\d+[^"'`]*)["'`]/,
-    // Unquoted URL in a script src or meta content
-    /content=["']?([^"'\s]*google\.com\/maps[^"'\s]*)["']?/i,
-  ];
-  for (const re of patterns) {
-    const m = html.match(re);
-    if (m) {
-      const coords = extractCoords(safeDecodeURI(m[1]));
-      if (coords) return coords;
-    }
+  // 2. ── android-app / google.navigation deep links ───────────────────────
+  //    <meta property="al:android:url" content="google.navigation:q=lat,lng">
+  const navMatch = html.match(/google\.navigation:q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (navMatch) return coords(navMatch[1], navMatch[2], baseUrl);
+
+  // 3. ── All google.com/maps URLs embedded in the HTML ────────────────────
+  const mapsUrlRe = /https?:\/\/(?:www\.)?(?:maps\.google\.com|google\.com\/maps)[^\s"'<>\\]*/g;
+  for (const raw of (html.match(mapsUrlRe) || [])) {
+    const c = extractCoordsFromUrl(safeDecodeURIComponent(raw));
+    if (c) return c;
   }
 
-  // 3. Raw coordinate arrays in JSON/JS data — Taiwan lat range 21-26, lng range 119-122
-  const twCoord = html.match(/\[(2[1-6]\.\d{4,}),\s*(1(?:19|20|21|22)\.\d{4,})\]/);
-  if (twCoord) {
-    return {
-      lat: parseFloat(twCoord[1]),
-      lng: parseFloat(twCoord[2]),
-      resolvedUrl: baseUrl,
-    };
+  // 4. ── Firebase Dynamic Link JS variables ──────────────────────────────
+  //    continueUrl / deepLinkUrl / fallbackUrl / redirectUrl
+  const fbVarRe = /(?:continueUrl|deepLinkUrl|redirectUrl|fallbackUrl|link)\s*[=:]\s*["'`]([^"'`]{10,})["'`]/gi;
+  for (const m of (html.matchAll(fbVarRe))) {
+    const c = extractCoordsFromUrl(safeDecodeURIComponent(m[1]));
+    if (c) return c;
   }
 
-  // 4. Generic JSON lat/lng
-  const jsonCoord = html.match(/"lat"\s*:\s*(-?\d+\.\d{4,})[^}]*"lng"\s*:\s*(-?\d+\.\d{4,})/);
-  if (jsonCoord) {
-    return {
-      lat: parseFloat(jsonCoord[1]),
-      lng: parseFloat(jsonCoord[2]),
-      resolvedUrl: baseUrl,
-    };
-  }
+  // 5. ── Any quoted string containing @lat,lng ────────────────────────────
+  const quotedAt = html.match(/["'`][^"'`]*@(-?\d+\.\d+),(-?\d+\.\d+)[^"'`]*["'`]/);
+  if (quotedAt) return coords(quotedAt[1], quotedAt[2], baseUrl);
+
+  // 6. ── JSON lat/lng pairs ───────────────────────────────────────────────
+  const json = html.match(/"lat"\s*:\s*(-?\d+\.\d{4,})[^}]{0,50}"lng"\s*:\s*(-?\d+\.\d{4,})/);
+  if (json) return coords(json[1], json[2], baseUrl);
+
+  // 7. ── Coordinate arrays (Taiwan range 21–26°N, 119–123°E) ─────────────
+  const tw = html.match(/\[(2[1-6]\.\d{4,}),\s*(1(?:19|20|21|22|23)\.\d{4,})\]/);
+  if (tw) return coords(tw[1], tw[2], baseUrl);
 
   return null;
 }
 
-function safeDecodeURI(str) {
-  try { return decodeURIComponent(str); } catch { return str; }
+// Extract coords from a comgooglemaps:// link
+function extractCGMCoords(link) {
+  // center=lat,lng (may be %2C instead of comma, already decoded above)
+  const center = link.match(/[?&]center=(-?\d+\.\d+)[,](-?\d+\.\d+)/);
+  if (center) return { lat: parseFloat(center[1]), lng: parseFloat(center[2]) };
+
+  // ll=lat,lng
+  const ll = link.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (ll) return { lat: parseFloat(ll[1]), lng: parseFloat(ll[2]) };
+
+  // q=lat,lng (only if the q param looks like coordinates, not a place name)
+  const q = link.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (q && isValidLatLng(parseFloat(q[1]), parseFloat(q[2])))
+    return { lat: parseFloat(q[1]), lng: parseFloat(q[2]) };
+
+  return null;
 }
 
-function resolveUrl(href, base) {
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+function coords(lat, lng, url) {
+  const la = parseFloat(lat), lo = parseFloat(lng);
+  if (!isValidLatLng(la, lo)) return null;
+  return { lat: la, lng: lo, resolvedUrl: url };
+}
+
+function isValidLatLng(lat, lng) {
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 &&
+    !(lat === 0 && lng === 0); // reject null island
+}
+
+function safeDecodeURIComponent(s) {
+  try { return decodeURIComponent(s); } catch { return s; }
+}
+
+function absoluteUrl(href, base) {
   try { return new URL(href, base).toString(); } catch { return href; }
 }
