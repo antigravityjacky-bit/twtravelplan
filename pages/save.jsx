@@ -586,7 +586,7 @@ export default function SavePage() {
                   <a
                     href={
                       form.name.trim()
-                        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(form.name.trim() + (form.address.trim() ? ' ' + form.address.trim() : '') + ' Taiwan')}`
+                        ? `/api/maps-open?q=${encodeURIComponent(form.name.trim() + (form.address.trim() ? ' ' + form.address.trim() : '') + ' Taiwan')}`
                         : undefined
                     }
                     onClick={(e) => { if (!form.name.trim()) e.preventDefault(); }}
