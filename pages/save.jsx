@@ -5,8 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { usePlaces } from '../hooks/usePlaces';
 import { parseCaption } from '../lib/parser';
-import { geocodeAddress } from '../lib/geocode';
-import { parseMapsCoords, parseMapsPlaceName, isGoogleMapsUrl } from '../lib/parseMapsUrl';
+import { searchPlaces } from '../lib/geocode';
+import {
+  parseMapsCoords, parseMapsPlaceName,
+  isGoogleMapsUrl, parseOSMCoords, isOSMUrl,
+} from '../lib/parseMapsUrl';
 
 // Load the pin map dynamically (Leaflet requires no SSR)
 const SaveMap = dynamic(() => import('../components/SaveMap'), { ssr: false });
@@ -25,7 +28,7 @@ const CATEGORY_EMOJI = {
 };
 
 const EMPTY_FORM = {
-  name: '', nameEn: '', category: 'Attraction', address: '',
+  name: '', category: 'Attraction', address: '',
   description: '', lat: null, lng: null, image_url: '', ig_url: '', notes: '',
 };
 
@@ -56,13 +59,17 @@ export default function SavePage() {
   const [confidence, setConfidence] = useState({});
   const [imgError, setImgError] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [geocoding, setGeocoding] = useState(false);
   const [toast, setToast] = useState(null);
   const [errors, setErrors] = useState({});
   const [isStandalone, setIsStandalone] = useState(null);
-  const [clipboardPrompt, setClipboardPrompt] = useState(null); // { url } | null
-  const [mapsUrl, setMapsUrl] = useState('');
-  const [mapsImporting, setMapsImporting] = useState(false);
+  const [clipboardPrompt, setClipboardPrompt] = useState(null);
+
+  // Location search state
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [locationUrl, setLocationUrl] = useState('');
+  const [urlImporting, setUrlImporting] = useState(false);
+
   const hasAutoFetched = useRef(false);
 
   // Detect standalone mode + auto-read clipboard when opened as PWA
@@ -71,8 +78,6 @@ export default function SavePage() {
     setIsStandalone(standalone);
 
     if (!standalone) return;
-    // In PWA mode: try to read clipboard for an IG link (no query params means
-    // user opened the app manually, not via Web Share Target)
     if (hasAutoFetched.current) return;
     navigator.clipboard.readText().then((text) => {
       const trimmed = text?.trim();
@@ -88,12 +93,10 @@ export default function SavePage() {
     setTimeout(() => setToast(null), 4000);
   }
 
-  // ── Extract URL from router.query (Web Share Target or manual) ───────────
+  // ── Extract URL from router.query (Web Share Target or manual) ────────────
   useEffect(() => {
     if (!router.isReady) return;
-    const { url, text, title } = router.query;
-
-    // Web Share Target passes url= or text= (Instagram link)
+    const { url, text } = router.query;
     const shared = url || (text && text.startsWith('http') ? text : null);
     if (shared && !hasAutoFetched.current) {
       setIgUrl(shared);
@@ -111,26 +114,15 @@ export default function SavePage() {
     const newForm = { ...EMPTY_FORM, ig_url: url };
 
     try {
-      // Step 1: Scrape Open Graph data
       const res = await fetch(`/api/scrape?url=${encodeURIComponent(url)}`);
       const og = await res.json();
-
-      // Step 2: Parse caption
       const parsed = parseCaption(og.description || '');
 
-      // Step 3: Fill form fields
       if (og.image) {
         newForm.image_url = og.image;
         newConf.image = 'high';
       } else {
         newConf.image = 'none';
-      }
-
-      if (parsed.name) {
-        newForm.name = parsed.name;
-        newConf.name = parsed.nameConfidence;
-      } else {
-        newConf.name = 'none';
       }
 
       if (parsed.description) {
@@ -142,8 +134,6 @@ export default function SavePage() {
 
       newForm.category = parsed.category;
       newConf.category = parsed.categoryConfidence;
-
-      // Coords intentionally not auto-filled — use Google Maps flow for accuracy
       newConf.coords = 'none';
 
       setForm(newForm);
@@ -164,7 +154,6 @@ export default function SavePage() {
       setIgUrl(trimmed);
       runCapture(trimmed);
     } catch {
-      // User denied permission or API unavailable — fall back to manual paste
       showToast('無法讀取剪貼簿，請手動貼入連結', 'error');
     }
   }
@@ -183,91 +172,88 @@ export default function SavePage() {
   function handleMapClick(lat, lng) {
     setForm((f) => ({ ...f, lat, lng }));
     setConfidence((c) => ({ ...c, coords: 'manual' }));
+    setSearchResults([]);
   }
 
-  async function handleGeocode() {
-    const query = [form.name.trim(), form.address.trim()].filter(Boolean).join(' ');
+  // ── Nominatim place search ────────────────────────────────────────────────
+  async function handleSearch() {
+    const query = form.name.trim();
     if (!query) return;
-    setGeocoding(true);
-    const coords = await geocodeAddress(query);
-    setGeocoding(false);
-    if (coords) {
-      setForm((f) => ({ ...f, lat: coords.lat, lng: coords.lng }));
-      setConfidence((c) => ({ ...c, coords: 'low' }));
-      setErrors((e) => ({ ...e, coords: undefined }));
+    setSearching(true);
+    setSearchResults([]);
+    const results = await searchPlaces(query + ' Taiwan');
+    setSearching(false);
+    if (results.length === 0) {
+      showToast('找不到結果，試試更完整名稱', 'error');
     } else {
-      showToast('找不到位置，試試加上「台灣」或更完整地址', 'error');
+      setSearchResults(results);
     }
   }
 
-  async function handleMapsImport() {
-    const url = mapsUrl.trim();
-    if (!url) return;
-    setMapsImporting(true);
+  function applySearchResult(r) {
+    setForm((f) => ({ ...f, lat: r.lat, lng: r.lng, address: r.label }));
+    setConfidence((c) => ({ ...c, coords: 'low' }));
+    setErrors((e) => ({ ...e, coords: undefined }));
+    setSearchResults([]);
+  }
 
-    // Try to parse coordinates directly from the URL string
-    const direct = parseMapsCoords(url);
-    if (direct) {
-      applyMapsResult(direct, url);
-      setMapsImporting(false);
+  // ── URL paste-back (OSM or Google Maps) ──────────────────────────────────
+  async function handleUrlImport() {
+    const url = locationUrl.trim();
+    if (!url) return;
+    setUrlImporting(true);
+
+    // 1. OSM URL — parse directly, no server needed
+    if (isOSMUrl(url)) {
+      const c = parseOSMCoords(url);
+      if (c) {
+        applyUrlResult(c, url);
+      } else {
+        showToast('無法解析 OSM 連結。請確認 URL 含 #map=zoom/lat/lng', 'error');
+      }
+      setUrlImporting(false);
       return;
     }
 
-    // Short URL or URL without coords — resolve server-side
+    // 2. Google Maps — direct parse or server resolve
+    const direct = parseMapsCoords(url);
+    if (direct) { applyUrlResult(direct, url); setUrlImporting(false); return; }
+
     if (isGoogleMapsUrl(url)) {
       try {
         const res = await fetch(`/api/resolve-maps?url=${encodeURIComponent(url)}`);
         const data = await res.json();
         if (data.lat) {
-          applyMapsResult({ lat: data.lat, lng: data.lng }, data.resolvedUrl || url);
+          applyUrlResult({ lat: data.lat, lng: data.lng }, data.resolvedUrl || url);
         } else {
-          // Short URL resolution failed — try Nominatim geocoding from place name as fallback
-          const fallbackName = form.name.trim() || form.address.trim();
-          if (fallbackName) {
-            setMapsImporting(true);
-            const nmCoords = await geocodeAddress(fallbackName);
-            setMapsImporting(false);
-            if (nmCoords) {
-              applyMapsResult(nmCoords, url);
-              showToast('⚠️ 短網址解析失敗，改用地點名稱定位（請在地圖確認位置）');
-            } else {
-              showToast('短網址無法解析。請在 Google Maps 分享時改用「複製連結」→ 貼上完整網址', 'error');
-            }
-          } else {
-            showToast('短網址無法解析。請在 Google Maps 分享時改用「複製連結」→ 貼上完整網址', 'error');
-          }
+          showToast('短網址無法解析。請複製完整 URL（含 @lat,lng）', 'error');
         }
       } catch {
         showToast('解析失敗，請稍後再試', 'error');
       }
     } else {
-      showToast('請貼入 Google Maps 連結（含 google.com/maps 或 maps.app.goo.gl）', 'error');
+      showToast('請貼入 OpenStreetMap 或 Google Maps 連結', 'error');
     }
 
-    setMapsImporting(false);
+    setUrlImporting(false);
   }
 
-  function applyMapsResult({ lat, lng }, sourceUrl) {
+  function applyUrlResult({ lat, lng }, sourceUrl) {
     setForm((f) => {
-      // Also try to fill address from the URL place name if address is still empty
       const fromUrl = parseMapsPlaceName(sourceUrl);
-      return {
-        ...f,
-        lat,
-        lng,
-        address: f.address || fromUrl || f.address,
-      };
+      return { ...f, lat, lng, address: f.address || fromUrl || f.address };
     });
     setConfidence((c) => ({ ...c, coords: 'high' }));
     setErrors((e) => ({ ...e, coords: undefined }));
-    setMapsUrl('');
-    showToast('✅ Google Maps 位置已套用');
+    setLocationUrl('');
+    setSearchResults([]);
+    showToast('✅ 位置已套用');
   }
 
   function validate() {
     const e = {};
     if (!form.name.trim()) e.name = '必填';
-    if (form.lat == null || form.lng == null) e.coords = '請點選地圖或填入座標';
+    if (form.lat == null || form.lng == null) e.coords = '請搜尋位置或點選地圖';
     return e;
   }
 
@@ -280,7 +266,6 @@ export default function SavePage() {
 
     const base = {
       name:        form.name.trim(),
-      nameEn:      form.nameEn.trim(),
       category:    form.category,
       address:     form.address.trim(),
       description: form.description.trim(),
@@ -288,7 +273,6 @@ export default function SavePage() {
       lng:         form.lng,
     };
 
-    // Try with new columns first; if they don't exist yet, fall back to base fields
     let result = await addPlace({ ...base, image_url: form.image_url.trim(), ig_url: form.ig_url.trim() });
 
     const missingColumn = result.error &&
@@ -313,6 +297,9 @@ export default function SavePage() {
   }
 
   const isLoading = scrapeStatus === 'loading';
+  const osmSearchUrl = form.name.trim()
+    ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(form.name.trim() + ' Taiwan')}`
+    : null;
 
   return (
     <>
@@ -342,16 +329,16 @@ export default function SavePage() {
           </div>
         </header>
 
-        <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        <main className="max-w-2xl mx-auto px-4 py-6 space-y-5">
 
-          {/* ── Step 1: URL Input ── */}
+          {/* ── Step 1: IG URL Input ── */}
           <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <span className="text-xl">📱</span>
               Instagram 連結
             </h2>
 
-            {/* Clipboard prompt — shown in standalone (PWA) mode when IG link detected */}
+            {/* Clipboard prompt */}
             {clipboardPrompt && scrapeStatus === 'idle' && (
               <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
                 <p className="text-xs font-semibold text-emerald-800 mb-1">📋 偵測到剪貼簿中的 IG 連結</p>
@@ -379,25 +366,24 @@ export default function SavePage() {
               </div>
             )}
 
-            {/* Standalone mode detector — shown only in browser (not installed PWA) */}
+            {/* Non-PWA hint */}
             {isStandalone === false && scrapeStatus === 'idle' && !igUrl && (
               <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 leading-relaxed">
                 <p className="font-semibold mb-1">⚠️ 正在 Safari 瀏覽器開啟（非 App 模式）</p>
-                <p className="mb-1.5">最可靠方法 👇 複製連結 → 回來按「貼上」按鈕，不需要安裝。</p>
+                <p className="mb-1.5">最可靠方法：複製連結 → 回來按「貼上」按鈕。</p>
                 <details>
                   <summary className="cursor-pointer text-amber-700 font-medium">想從 IG 分享直接打開？（需安裝）</summary>
                   <ol className="list-decimal list-inside space-y-0.5 mt-1.5">
                     <li>用 <strong>Safari</strong> 打開此網站</li>
-                    <li>底部 □↑ 分享鍵 → 向下滑找「<strong>加入主畫面</strong>」（不是「加入書籤」）</li>
+                    <li>底部 □↑ → 向下滑找「<strong>加入主畫面</strong>」</li>
                     <li>從主畫面圖示開啟一次</li>
                     <li>Instagram → 分享 → 更多 → 找「TW Trip」啟用</li>
-                    <li>⚠️ iOS 並非所有版本都支援，若看不到屬正常</li>
                   </ol>
                 </details>
               </div>
             )}
 
-            {/* iOS instruction hint */}
+            {/* Usage hint */}
             {!igUrl && scrapeStatus === 'idle' && !clipboardPrompt && (
               <div className="mb-4 p-3 bg-blue-50 rounded-xl text-xs text-blue-700 leading-relaxed">
                 <p className="font-semibold mb-1">📱 使用方法</p>
@@ -406,12 +392,11 @@ export default function SavePage() {
                   <li>回到這裡 → 按「📋 貼上 IG 連結」</li>
                 </ol>
                 {isStandalone && (
-                  <p className="mt-1.5 text-emerald-600 font-medium">✅ App 模式：下次複製連結後開啟 app 會自動偵測</p>
+                  <p className="mt-1.5 text-emerald-600 font-medium">✅ App 模式：複製連結後開啟 app 會自動偵測</p>
                 )}
               </div>
             )}
 
-            {/* Clipboard paste button — primary iOS flow */}
             <button
               type="button"
               onClick={handlePasteFromClipboard}
@@ -437,7 +422,6 @@ export default function SavePage() {
               </button>
             </form>
 
-            {/* Loading indicator */}
             {isLoading && (
               <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
                 <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin flex-shrink-0" />
@@ -446,194 +430,191 @@ export default function SavePage() {
             )}
           </section>
 
-          {/* ── Form (shown after scrape attempt or when URL is present) ── */}
+          {/* ── Form (shown after scrape attempt) ── */}
           {(scrapeStatus === 'done' || scrapeStatus === 'error') && (
             <form onSubmit={handleSave} className="space-y-5">
 
-              {/* Image preview */}
+              {/* ── Captured info: image + category + description ── */}
               <section className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                <div className="px-5 pt-4 pb-2 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-slate-700">📸 圖片</h2>
-                  <Badge confidence={confidence.image ?? 'none'} labels={{ high: '自動抓取', none: '未找到圖片' }} />
+                {/* Image */}
+                <div className="flex items-center justify-between px-5 pt-4 pb-2">
+                  <h2 className="text-sm font-semibold text-slate-700">📸 自動抓取資訊</h2>
+                  <Badge confidence={confidence.image ?? 'none'} labels={{ high: '圖片已抓取', none: '未找到圖片' }} />
                 </div>
+
                 {form.image_url && !imgError ? (
                   <img
                     src={form.image_url}
                     alt="Instagram post"
-                    className="w-full max-h-72 object-cover"
+                    className="w-full max-h-64 object-cover"
                     onError={() => setImgError(true)}
                   />
                 ) : (
-                  <div className="mx-5 mb-4 h-32 bg-slate-100 rounded-xl flex items-center justify-center">
+                  <div className="mx-5 mb-2 h-28 bg-slate-100 rounded-xl flex items-center justify-center">
                     <span className="text-4xl opacity-30">📷</span>
                   </div>
                 )}
-                {/* Image URL override */}
-                <div className="px-5 pb-4">
+
+                <div className="px-5 pb-4 space-y-4 pt-3">
+                  {/* Image URL override */}
                   <input
                     value={form.image_url}
                     onChange={(e) => { set('image_url', e.target.value); setImgError(false); }}
                     placeholder="圖片 URL（可手動修改）"
                     className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 outline-none focus:border-slate-400 text-slate-600 placeholder-slate-300"
                   />
+
+                  {/* Category */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-semibold text-slate-700">🏷️ 分類</label>
+                      <Badge
+                        confidence={confidence.category ?? 'none'}
+                        labels={{ high: '自動偵測', low: '請確認', none: '請選擇' }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {CATEGORIES.map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => { set('category', cat); setConfidence((c) => ({ ...c, category: 'manual' })); }}
+                          className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
+                            form.category === cat
+                              ? CATEGORY_ACTIVE[cat]
+                              : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+                          }`}
+                        >
+                          {CATEGORY_EMOJI[cat]} {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-semibold text-slate-700">📝 描述</label>
+                      <Badge confidence={confidence.description ?? 'optional'} labels={{ low: '從 caption 擷取', optional: '可選填' }} />
+                    </div>
+                    <textarea
+                      value={form.description}
+                      onChange={(e) => set('description', e.target.value)}
+                      rows={3}
+                      placeholder="地點簡介..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100 resize-none"
+                    />
+                  </div>
                 </div>
               </section>
 
-              {/* Name */}
-              <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-slate-700">📍 地點名稱 *</label>
-                  <Badge confidence={confidence.name ?? 'none'} labels={{ low: '請確認', none: '請手動填寫' }} />
-                </div>
-                <input
-                  value={form.name}
-                  onChange={(e) => set('name', e.target.value)}
-                  placeholder="例：阜杭豆漿"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-800 placeholder-slate-300 outline-none transition-all ${
-                    errors.name ? 'border-rose-300 focus:ring-2 focus:ring-rose-100' : 'border-slate-200 focus:border-slate-400 focus:ring-2 focus:ring-slate-100'
-                  }`}
-                />
-                {errors.name && <p className="text-xs text-rose-500">{errors.name}</p>}
-
-                <input
-                  value={form.nameEn}
-                  onChange={(e) => set('nameEn', e.target.value)}
-                  placeholder="English name（選填）"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                />
-              </section>
-
-              {/* Category */}
-              <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-slate-700">🏷️ 分類</label>
-                  <Badge
-                    confidence={confidence.category ?? 'none'}
-                    labels={{ high: '自動偵測', low: '請確認', none: '請選擇' }}
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {CATEGORIES.map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => { set('category', cat); setConfidence((c) => ({ ...c, category: 'manual' })); }}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
-                        form.category === cat
-                          ? CATEGORY_ACTIVE[cat]
-                          : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
-                      }`}
-                    >
-                      {CATEGORY_EMOJI[cat]} {cat}
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              {/* Description */}
-              <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-slate-700">📝 描述</label>
-                  <Badge confidence={confidence.description ?? 'optional'} labels={{ low: '從 caption 擷取', optional: '可選填' }} />
-                </div>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => set('description', e.target.value)}
-                  rows={3}
-                  placeholder="地點簡介..."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100 resize-none"
-                />
-              </section>
-
-              {/* Location + Map */}
-              <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
+              {/* ── Location section ── */}
+              <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-semibold text-slate-700">🗺️ 位置</label>
                   <Badge
                     confidence={confidence.coords ?? 'none'}
-                    labels={{ low: '自動定位（請確認）', manual: '手動選擇', none: '請在地圖點選' }}
+                    labels={{ high: '已確認', low: '自動定位（請確認）', manual: '手動選擇', none: '請搜尋或點地圖' }}
                   />
                 </div>
 
-                {/* Address input + geocode button */}
-                <div className="flex gap-2">
+                {/* Name input — required, also used as search query */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-500">店名 / 地點 *</label>
                   <input
-                    value={form.address}
-                    onChange={(e) => set('address', e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleGeocode(); } }}
-                    placeholder="輸入地址或地點名稱，按🔍自動定位"
-                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                    value={form.name}
+                    onChange={(e) => set('name', e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
+                    placeholder="例：阜杭豆漿"
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-800 placeholder-slate-300 outline-none transition-all ${
+                      errors.name ? 'border-rose-300 focus:ring-2 focus:ring-rose-100' : 'border-slate-200 focus:border-slate-400 focus:ring-2 focus:ring-slate-100'
+                    }`}
                   />
+                  {errors.name && <p className="text-xs text-rose-500">{errors.name}</p>}
+                </div>
+
+                {/* Search + OSM open buttons */}
+                <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={handleGeocode}
-                    disabled={geocoding || (!form.address.trim() && !form.name.trim())}
-                    className="px-4 py-2.5 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 flex-shrink-0 flex items-center gap-1.5"
+                    onClick={handleSearch}
+                    disabled={searching || !form.name.trim()}
+                    className="flex-1 py-2.5 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-1.5"
                   >
-                    {geocoding
+                    {searching
                       ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       : '🔍'}
-                    {geocoding ? '搜尋中' : '定位'}
+                    {searching ? '搜尋中...' : '搜尋位置'}
                   </button>
-                </div>
-                <p className="text-xs text-slate-400 -mt-1">輸入地名 → 按定位；或用下方 Google Maps 確認更準確位置</p>
-
-                {/* ── Google Maps verification flow ── */}
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-2.5">
-                  <p className="text-xs font-semibold text-slate-700">🗺️ 用 Google Maps 確認準確位置（推薦）</p>
-
-                  {/* Step 1 — open Google Maps */}
                   <a
-                    href={
-                      form.name.trim()
-                        ? `/api/maps-open?q=${encodeURIComponent(form.name.trim() + (form.address.trim() ? ' ' + form.address.trim() : '') + ' Taiwan')}`
-                        : undefined
-                    }
-                    onClick={(e) => { if (!form.name.trim()) e.preventDefault(); }}
+                    href={osmSearchUrl ?? undefined}
+                    onClick={(e) => { if (!osmSearchUrl) e.preventDefault(); }}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                      form.name.trim()
-                        ? 'bg-green-500 text-white hover:bg-green-600 active:bg-green-700'
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold text-center transition-colors ${
+                      osmSearchUrl
+                        ? 'bg-emerald-500 text-white hover:bg-emerald-600'
                         : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                     }`}
                   >
-                    🗺️ {form.name.trim() ? `搜尋「${form.name.trim()}」in Google Maps` : '先填入地點名稱'}
+                    🌐 OpenStreetMap
                   </a>
+                </div>
 
-                  {/* Step 2 — paste Google Maps share link */}
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-slate-500">
-                      找到後：右上 ⋯ → <strong>分享</strong> → <strong>複製連結</strong> → 貼在這裡 ↓
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      短網址解析失敗時：Safari 打開連結 → 複製網址列完整 URL（含 @lat,lng）
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        value={mapsUrl}
-                        onChange={(e) => setMapsUrl(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleMapsImport(); } }}
-                        placeholder="貼入 Google Maps 連結..."
-                        className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 placeholder-slate-300 outline-none focus:border-green-400 focus:ring-2 focus:ring-green-50"
-                      />
+                {/* Nominatim results list */}
+                {searchResults.length > 0 && (
+                  <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+                    {searchResults.map((r, i) => (
+                      <li key={i}>
+                        <button
+                          type="button"
+                          onClick={() => applySearchResult(r)}
+                          className="w-full text-left px-3.5 py-2.5 text-xs text-slate-700 hover:bg-blue-50 transition-colors"
+                        >
+                          <span className="text-blue-500 font-medium">📍 </span>{r.label}
+                        </button>
+                      </li>
+                    ))}
+                    <li>
                       <button
                         type="button"
-                        onClick={handleMapsImport}
-                        disabled={!mapsUrl.trim() || mapsImporting}
-                        className="px-3.5 py-2 bg-green-500 text-white text-xs font-semibold rounded-xl hover:bg-green-600 disabled:opacity-40 flex-shrink-0 flex items-center gap-1"
+                        onClick={() => setSearchResults([])}
+                        className="w-full text-center px-3.5 py-2 text-xs text-slate-400 hover:bg-slate-50 transition-colors"
                       >
-                        {mapsImporting
-                          ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          : '✓'}
-                        {mapsImporting ? '解析中' : '套用'}
+                        ✕ 關閉
                       </button>
-                    </div>
-                  </div>
+                    </li>
+                  </ul>
+                )}
 
-                  {confidence.coords === 'high' && (
-                    <p className="text-xs text-green-600 font-medium">✅ Google Maps 位置已確認</p>
-                  )}
+                {/* URL paste-back (OSM or Google Maps) */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-2">
+                  <p className="text-xs font-semibold text-slate-600">
+                    或貼入地圖連結（OpenStreetMap / Google Maps）
+                  </p>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    在 OpenStreetMap 找到位置後，複製網址列 URL（含 <code className="bg-slate-200 px-1 rounded">#map=</code>）→ 貼在這裡
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      value={locationUrl}
+                      onChange={(e) => setLocationUrl(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleUrlImport(); } }}
+                      placeholder="貼入 OSM 或 Google Maps 連結..."
+                      className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 placeholder-slate-300 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleUrlImport}
+                      disabled={!locationUrl.trim() || urlImporting}
+                      className="px-3.5 py-2 bg-blue-500 text-white text-xs font-semibold rounded-xl hover:bg-blue-600 disabled:opacity-40 flex-shrink-0 flex items-center gap-1"
+                    >
+                      {urlImporting
+                        ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : '✓'}
+                      {urlImporting ? '解析中' : '套用'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Map */}
@@ -652,7 +633,7 @@ export default function SavePage() {
                     📍 {form.lat.toFixed(5)}, {form.lng.toFixed(5)} · 可再點地圖微調位置
                   </p>
                 ) : (
-                  <p className="text-xs text-slate-400 text-center">輸入地名按定位，或直接點擊地圖放 pin</p>
+                  <p className="text-xs text-slate-400 text-center">搜尋位置，或直接點擊地圖放 pin</p>
                 )}
               </section>
 
@@ -666,7 +647,7 @@ export default function SavePage() {
                   value={form.notes}
                   onChange={(e) => set('notes', e.target.value)}
                   rows={2}
-                  placeholder="想去的原因、推薦菜式... （選填）"
+                  placeholder="想去的原因、推薦菜式...（選填）"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-300 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100 resize-none"
                 />
               </section>
@@ -680,7 +661,6 @@ export default function SavePage() {
                 {saving ? '儲存中...' : '✅ 儲存地點到地圖'}
               </button>
 
-              {/* IG URL display */}
               {form.ig_url && (
                 <div className="text-center pb-4">
                   <a
@@ -696,7 +676,7 @@ export default function SavePage() {
             </form>
           )}
 
-          {/* Idle state — instructions */}
+          {/* Idle state */}
           {scrapeStatus === 'idle' && !igUrl && (
             <div className="text-center py-12 text-slate-400">
               <p className="text-5xl mb-4">📸</p>
