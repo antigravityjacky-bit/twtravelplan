@@ -6,6 +6,7 @@ import { useRouter } from 'next/router';
 import { usePlaces } from '../hooks/usePlaces';
 import { parseCaption } from '../lib/parser';
 import { geocodeAddress } from '../lib/geocode';
+import { parseMapsCoords, parseMapsPlaceName, isGoogleMapsUrl } from '../lib/parseMapsUrl';
 
 // Load the pin map dynamically (Leaflet requires no SSR)
 const SaveMap = dynamic(() => import('../components/SaveMap'), { ssr: false });
@@ -60,6 +61,8 @@ export default function SavePage() {
   const [errors, setErrors] = useState({});
   const [isStandalone, setIsStandalone] = useState(null);
   const [clipboardPrompt, setClipboardPrompt] = useState(null); // { url } | null
+  const [mapsUrl, setMapsUrl] = useState('');
+  const [mapsImporting, setMapsImporting] = useState(false);
   const hasAutoFetched = useRef(false);
 
   // Detect standalone mode + auto-read clipboard when opened as PWA
@@ -208,6 +211,56 @@ export default function SavePage() {
     } else {
       showToast('找不到位置，試試加上「台灣」或更完整地址', 'error');
     }
+  }
+
+  async function handleMapsImport() {
+    const url = mapsUrl.trim();
+    if (!url) return;
+    setMapsImporting(true);
+
+    // Try to parse coordinates directly from the URL string
+    const direct = parseMapsCoords(url);
+    if (direct) {
+      applyMapsResult(direct, url);
+      setMapsImporting(false);
+      return;
+    }
+
+    // Short URL or URL without coords — resolve server-side
+    if (isGoogleMapsUrl(url)) {
+      try {
+        const res = await fetch(`/api/resolve-maps?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        if (data.lat) {
+          applyMapsResult({ lat: data.lat, lng: data.lng }, data.resolvedUrl || url);
+        } else {
+          showToast('無法解析，請複製 Google Maps 網址列的完整連結試試', 'error');
+        }
+      } catch {
+        showToast('解析失敗，請稍後再試', 'error');
+      }
+    } else {
+      showToast('請貼入 Google Maps 連結（含 google.com/maps 或 maps.app.goo.gl）', 'error');
+    }
+
+    setMapsImporting(false);
+  }
+
+  function applyMapsResult({ lat, lng }, sourceUrl) {
+    setForm((f) => {
+      // Also try to fill address from the URL place name if address is still empty
+      const fromUrl = parseMapsPlaceName(sourceUrl);
+      return {
+        ...f,
+        lat,
+        lng,
+        address: f.address || fromUrl || f.address,
+      };
+    });
+    setConfidence((c) => ({ ...c, coords: 'high' }));
+    setErrors((e) => ({ ...e, coords: undefined }));
+    setMapsUrl('');
+    showToast('✅ Google Maps 位置已套用');
   }
 
   function validate() {
@@ -522,7 +575,62 @@ export default function SavePage() {
                     {geocoding ? '搜尋中' : '定位'}
                   </button>
                 </div>
-                <p className="text-xs text-slate-400 -mt-1">輸入地名（中文或英文）→ 按定位 → 地圖 pin 自動跳到該位置</p>
+                <p className="text-xs text-slate-400 -mt-1">輸入地名 → 按定位；或用下方 Google Maps 確認更準確位置</p>
+
+                {/* ── Google Maps verification flow ── */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-2.5">
+                  <p className="text-xs font-semibold text-slate-700">🗺️ 用 Google Maps 確認準確位置（推薦）</p>
+
+                  {/* Step 1 — open Google Maps */}
+                  <a
+                    href={
+                      form.name.trim()
+                        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(form.name.trim() + (form.address.trim() ? ' ' + form.address.trim() : '') + ' Taiwan')}`
+                        : undefined
+                    }
+                    onClick={(e) => { if (!form.name.trim()) e.preventDefault(); }}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      form.name.trim()
+                        ? 'bg-green-500 text-white hover:bg-green-600 active:bg-green-700'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    🗺️ {form.name.trim() ? `搜尋「${form.name.trim()}」in Google Maps` : '先填入地點名稱'}
+                  </a>
+
+                  {/* Step 2 — paste Google Maps share link */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-slate-500">
+                      找到後：Google Maps → 右上 ⋯ → <strong>分享</strong> → <strong>複製連結</strong> → 貼在這裡 ↓
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        value={mapsUrl}
+                        onChange={(e) => setMapsUrl(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleMapsImport(); } }}
+                        placeholder="貼入 Google Maps 連結..."
+                        className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 placeholder-slate-300 outline-none focus:border-green-400 focus:ring-2 focus:ring-green-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleMapsImport}
+                        disabled={!mapsUrl.trim() || mapsImporting}
+                        className="px-3.5 py-2 bg-green-500 text-white text-xs font-semibold rounded-xl hover:bg-green-600 disabled:opacity-40 flex-shrink-0 flex items-center gap-1"
+                      >
+                        {mapsImporting
+                          ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          : '✓'}
+                        {mapsImporting ? '解析中' : '套用'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {confidence.coords === 'high' && (
+                    <p className="text-xs text-green-600 font-medium">✅ Google Maps 位置已確認</p>
+                  )}
+                </div>
 
                 {/* Map */}
                 <div className={`rounded-xl overflow-hidden border ${errors.coords ? 'border-rose-300' : 'border-slate-200'}`}>
