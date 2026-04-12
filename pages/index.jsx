@@ -82,6 +82,7 @@ export default function Home() {
                 <Link href="/itinerary" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">📅 行程</Link>
                 <Link href="/accommodations" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">🏨 住宿</Link>
                 <Link href="/save" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">📸 IG</Link>
+                <Link href="/expenses" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">💸 帳單</Link>
                 <Link href="/admin" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">✏️ 管理</Link>
               </div>
             </div>
@@ -135,6 +136,7 @@ export default function Home() {
               <Link href="/itinerary" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">📅</Link>
               <Link href="/accommodations" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">🏨</Link>
               <Link href="/save" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">📸</Link>
+              <Link href="/expenses" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">💸</Link>
               <Link
                 href="/admin"
                 className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"

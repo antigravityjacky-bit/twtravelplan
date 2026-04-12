@@ -103,6 +103,8 @@ export default function Admin() {
               <span className="text-slate-200">|</span>
               <Link href="/save" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">📸 IG</Link>
               <span className="text-slate-200">|</span>
+              <Link href="/expenses" className="text-slate-400 hover:text-slate-600 transition-colors text-sm">💸 帳單</Link>
+              <span className="text-slate-200">|</span>
               <h1 className="font-bold text-slate-800">✏️ 管理地點</h1>
               {isSupabase && (
                 <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full ring-1 ring-emerald-200">
