@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { useTrip } from '../context/TripContext';
 import defaultPlaces from '../data/places';
 
 const STORAGE_KEY = 'tw_trip_places';
-
-// ─── localStorage fallback (used when Supabase env vars are not set) ──────────
 
 function loadFromStorage() {
   try {
@@ -19,21 +18,24 @@ function saveToStorage(places) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(places));
 }
 
-// ─── Main hook ────────────────────────────────────────────────────────────────
-
 export function usePlaces() {
+  const { tripId, loading: tripLoading } = useTrip();
   const [places, setPlaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const isSupabase = !!supabase;
+  // Gate: don't query until TripContext has resolved localStorage
+  const ready = !tripLoading && !!tripId;
 
-  // ── Fetch all places ──────────────────────────────────────────────────────
-
-  // Full fetch: shows loading spinner (initial load only)
   const fetchPlaces = useCallback(async () => {
     if (!isSupabase) {
       setPlaces(loadFromStorage());
+      setLoading(false);
+      return;
+    }
+    if (!ready) {
+      setPlaces([]);
       setLoading(false);
       return;
     }
@@ -42,42 +44,37 @@ export function usePlaces() {
     const { data, error: err } = await supabase
       .from('places')
       .select('*')
+      .eq('trip_id', tripId)
       .order('id', { ascending: true });
-    if (err) {
-      setError(err.message);
-    } else {
-      setPlaces(data);
-    }
+    if (err) { setError(err.message); } else { setPlaces(data); }
     setLoading(false);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
-  // Silent refresh: updates data without flashing the loading spinner
   const refreshPlaces = useCallback(async () => {
-    if (!isSupabase) return;
+    if (!isSupabase || !ready) return;
     const { data } = await supabase
       .from('places')
       .select('*')
+      .eq('trip_id', tripId)
       .order('id', { ascending: true });
     if (data) setPlaces(data);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
-  // ── Initial load + real-time subscription + visibility refetch ───────────
   useEffect(() => {
     fetchPlaces();
 
-    // Refetch when user switches back to this tab (cross-tab sync)
     function handleVisibility() {
       if (document.visibilityState === 'visible') refreshPlaces();
     }
     document.addEventListener('visibilitychange', handleVisibility);
 
-    if (!supabase) return () => document.removeEventListener('visibilitychange', handleVisibility);
+    if (!supabase || !tripId) return () => document.removeEventListener('visibilitychange', handleVisibility);
 
     const channel = supabase
-      .channel('places-changes')
+      .channel(`places-changes-${tripId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'places' },
+        { event: '*', schema: 'public', table: 'places', filter: `trip_id=eq.${tripId}` },
         () => refreshPlaces()
       )
       .subscribe();
@@ -86,9 +83,7 @@ export function usePlaces() {
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(channel);
     };
-  }, [fetchPlaces, refreshPlaces]);
-
-  // ── CRUD operations ───────────────────────────────────────────────────────
+  }, [fetchPlaces, refreshPlaces, tripId]);
 
   async function addPlace(place) {
     if (!isSupabase) {
@@ -97,7 +92,7 @@ export function usePlaces() {
       saveToStorage(next);
       return { error: null };
     }
-    const { error: err } = await supabase.from('places').insert([place]);
+    const { error: err } = await supabase.from('places').insert([{ ...place, trip_id: tripId }]);
     if (err) return { error: err.message };
     await refreshPlaces();
     return { error: null };
@@ -110,14 +105,10 @@ export function usePlaces() {
       saveToStorage(next);
       return { error: null };
     }
-    // Optimistic update: reflect change immediately before server confirms
     const { id, ...fields } = updated;
     setPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, ...fields } : p)));
     const { error: err } = await supabase.from('places').update(fields).eq('id', id);
-    if (err) {
-      await refreshPlaces(); // revert on error
-      return { error: err.message };
-    }
+    if (err) { await refreshPlaces(); return { error: err.message }; }
     await refreshPlaces();
     return { error: null };
   }
@@ -129,13 +120,9 @@ export function usePlaces() {
       saveToStorage(next);
       return { error: null };
     }
-    // Optimistic update
     setPlaces((prev) => prev.filter((p) => p.id !== id));
     const { error: err } = await supabase.from('places').delete().eq('id', id);
-    if (err) {
-      await refreshPlaces(); // revert on error
-      return { error: err.message };
-    }
+    if (err) { await refreshPlaces(); return { error: err.message }; }
     return { error: null };
   }
 
@@ -145,27 +132,17 @@ export function usePlaces() {
       setPlaces(defaultPlaces);
       return { error: null };
     }
-    // Delete all rows then re-insert defaults
     const { error: delErr } = await supabase
       .from('places')
       .delete()
-      .neq('id', 0); // matches all rows
+      .eq('trip_id', tripId);
     if (delErr) return { error: delErr.message };
     const { error: insErr } = await supabase
       .from('places')
-      .insert(defaultPlaces.map(({ id: _id, ...rest }) => rest)); // strip local ids
+      .insert(defaultPlaces.map(({ id: _id, ...rest }) => ({ ...rest, trip_id: tripId })));
     if (insErr) return { error: insErr.message };
     return { error: null };
   }
 
-  return {
-    places,
-    loading,
-    error,
-    isSupabase,
-    addPlace,
-    updatePlace,
-    deletePlace,
-    resetToDefaults,
-  };
+  return { places, loading, error, isSupabase, addPlace, updatePlace, deletePlace, resetToDefaults };
 }

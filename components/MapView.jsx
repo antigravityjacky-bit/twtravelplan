@@ -66,9 +66,8 @@ function FlyToSelected({ selectedPlace }) {
   return null;
 }
 
-export default function MapView({ places, selectedPlace, onSelectPlace }) {
-  // Centre of Taipei
-  const center = [25.0478, 121.5319];
+export default function MapView({ places, selectedPlace, onSelectPlace, center: centerProp }) {
+  const center = centerProp ?? [25.0478, 121.5319];
 
   return (
     <MapContainer

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { useTrip } from '../context/TripContext';
 
 const STORAGE_KEY = 'tw_trip_expenses';
 
@@ -17,10 +18,12 @@ function saveToStorage(items) {
 }
 
 export function useExpenses() {
+  const { tripId, loading: tripLoading } = useTrip();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const isSupabase = !!supabase;
+  const ready = !tripLoading && !!tripId;
 
   const fetchExpenses = useCallback(async () => {
     if (!isSupabase) {
@@ -28,23 +31,30 @@ export function useExpenses() {
       setLoading(false);
       return;
     }
+    if (!ready) {
+      setExpenses([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const { data } = await supabase
       .from('expenses')
       .select('*')
+      .eq('trip_id', tripId)
       .order('created_at', { ascending: false });
     if (data) setExpenses(data);
     setLoading(false);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
   const refreshExpenses = useCallback(async () => {
-    if (!isSupabase) return;
+    if (!isSupabase || !ready) return;
     const { data } = await supabase
       .from('expenses')
       .select('*')
+      .eq('trip_id', tripId)
       .order('created_at', { ascending: false });
     if (data) setExpenses(data);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
   useEffect(() => {
     fetchExpenses();
@@ -54,11 +64,11 @@ export function useExpenses() {
     }
     document.addEventListener('visibilitychange', handleVisibility);
 
-    if (!supabase) return () => document.removeEventListener('visibilitychange', handleVisibility);
+    if (!supabase || !tripId) return () => document.removeEventListener('visibilitychange', handleVisibility);
 
     const channel = supabase
-      .channel('expenses-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () =>
+      .channel(`expenses-changes-${tripId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', filter: `trip_id=eq.${tripId}` }, () =>
         refreshExpenses()
       )
       .subscribe();
@@ -67,7 +77,7 @@ export function useExpenses() {
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(channel);
     };
-  }, [fetchExpenses, refreshExpenses]);
+  }, [fetchExpenses, refreshExpenses, tripId]);
 
   async function addExpense(data) {
     if (!isSupabase) {
@@ -78,7 +88,7 @@ export function useExpenses() {
     }
     const tempId = Date.now();
     setExpenses((prev) => [{ ...data, id: tempId, created_at: new Date().toISOString() }, ...prev]);
-    const { error: err } = await supabase.from('expenses').insert([data]);
+    const { error: err } = await supabase.from('expenses').insert([{ ...data, trip_id: tripId }]);
     if (err) { await refreshExpenses(); return { error: err.message }; }
     await refreshExpenses();
     return { error: null };

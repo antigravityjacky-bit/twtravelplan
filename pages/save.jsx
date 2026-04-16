@@ -4,6 +4,8 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { usePlaces } from '../hooks/usePlaces';
+import { useTrip } from '../context/TripContext';
+import TripSwitchLink from '../components/TripSwitchLink';
 import { parseCaption } from '../lib/parser';
 import { searchPlaces } from '../lib/geocode';
 import {
@@ -51,6 +53,7 @@ function Badge({ confidence, labels = {} }) {
 
 export default function SavePage() {
   const router = useRouter();
+  const { trip } = useTrip();
   const { addPlace } = usePlaces();
 
   const [igUrl, setIgUrl] = useState('');
@@ -181,7 +184,8 @@ export default function SavePage() {
     if (!query) return;
     setSearching(true);
     setSearchResults([]);
-    const results = await searchPlaces(query + ' Taiwan');
+    const countryCode = trip?.country_code ?? 'tw';
+    const results = await searchPlaces(query, 5, countryCode);
     setSearching(false);
     if (results.length === 0) {
       showToast('找不到結果，試試更完整名稱', 'error');
@@ -322,6 +326,8 @@ export default function SavePage() {
         <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
           <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
             <div className="flex items-center gap-3">
+              <TripSwitchLink />
+              <span className="text-slate-200">|</span>
               <Link href="/" className="text-slate-400 hover:text-slate-600 text-sm">← 地圖</Link>
               <span className="text-slate-200">|</span>
               <h1 className="font-bold text-slate-800">📸 儲存 IG 地點</h1>
@@ -624,6 +630,7 @@ export default function SavePage() {
                     lng={form.lng}
                     category={form.category}
                     onMapClick={handleMapClick}
+                    defaultCenter={trip ? [trip.map_lat, trip.map_lng] : undefined}
                   />
                 </div>
                 {errors.coords && <p className="text-xs text-rose-500">{errors.coords}</p>}

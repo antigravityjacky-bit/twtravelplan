@@ -9,7 +9,7 @@ const SPLIT_MODES = [
 const EMPTY = {
   title: '',
   amount: '',
-  currency: 'HKD',
+  currency: '',
   paidBy: '',
   participants: [],
   splitMode: 'equal',
@@ -18,7 +18,7 @@ const EMPTY = {
 
 function fmt(n) { return isFinite(n) ? n.toFixed(2) : '—'; }
 
-export default function ExpenseForm({ initial, members, onSave, onCancel, saving = false }) {
+export default function ExpenseForm({ initial, members, currencies = ['HKD', 'TWD'], onSave, onCancel, saving = false }) {
   const [form, setForm] = useState(EMPTY);
   const [inputSplits, setInputSplits] = useState({}); // % strings or amount strings per person
   const [errors, setErrors] = useState({});
@@ -48,7 +48,7 @@ export default function ExpenseForm({ initial, members, onSave, onCancel, saving
       setForm({
         title:       initial.title || '',
         amount:      String(initial.amount || ''),
-        currency:    initial.currency || 'HKD',
+        currency:    initial.currency || currencies[0] || 'HKD',
         paidBy:      initial.paid_by || '',
         participants,
         splitMode:   mode,
@@ -56,8 +56,8 @@ export default function ExpenseForm({ initial, members, onSave, onCancel, saving
       });
       setInputSplits(inputs);
     } else {
-      // New expense: default to all active members
-      setForm({ ...EMPTY, participants: [...activeMembers] });
+      // New expense: default to all active members, first available currency
+      setForm({ ...EMPTY, currency: currencies[0] ?? 'HKD', participants: [...activeMembers] });
       setInputSplits({});
     }
     setErrors({});
@@ -211,7 +211,7 @@ export default function ExpenseForm({ initial, members, onSave, onCancel, saving
   const amt = parseFloat(form.amount) || 0;
   const calcSplits = getCalculatedSplits();
   const splitTotal = getSplitTotal(calcSplits);
-  const currSym = form.currency === 'HKD' ? 'HK$' : 'NT$';
+  const currSym = form.currency;
   const isEdit = !!initial;
 
   return (
@@ -248,7 +248,7 @@ export default function ExpenseForm({ initial, members, onSave, onCancel, saving
             <label className="text-xs font-semibold text-slate-600">金額 *</label>
             <div className="flex gap-2">
               <div className="flex rounded-xl border border-slate-200 overflow-hidden flex-shrink-0">
-                {['HKD', 'TWD'].map((cur) => (
+                {currencies.map((cur) => (
                   <button
                     key={cur}
                     type="button"

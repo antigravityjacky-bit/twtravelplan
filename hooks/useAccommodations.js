@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { useTrip } from '../context/TripContext';
 
 const STORAGE_KEY = 'tw_trip_accommodations';
 
@@ -17,10 +18,12 @@ function saveToStorage(items) {
 }
 
 export function useAccommodations() {
+  const { tripId, loading: tripLoading } = useTrip();
   const [accommodations, setAccommodations] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const isSupabase = !!supabase;
+  const ready = !tripLoading && !!tripId;
 
   const fetchAccommodations = useCallback(async () => {
     if (!isSupabase) {
@@ -28,23 +31,30 @@ export function useAccommodations() {
       setLoading(false);
       return;
     }
+    if (!ready) {
+      setAccommodations([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const { data } = await supabase
       .from('accommodations')
       .select('*')
+      .eq('trip_id', tripId)
       .order('id', { ascending: true });
     if (data) setAccommodations(data);
     setLoading(false);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
   const refreshAccommodations = useCallback(async () => {
-    if (!isSupabase) return;
+    if (!isSupabase || !ready) return;
     const { data } = await supabase
       .from('accommodations')
       .select('*')
+      .eq('trip_id', tripId)
       .order('id', { ascending: true });
     if (data) setAccommodations(data);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
   useEffect(() => {
     fetchAccommodations();
@@ -54,11 +64,11 @@ export function useAccommodations() {
     }
     document.addEventListener('visibilitychange', handleVisibility);
 
-    if (!supabase) return () => document.removeEventListener('visibilitychange', handleVisibility);
+    if (!supabase || !tripId) return () => document.removeEventListener('visibilitychange', handleVisibility);
 
     const channel = supabase
-      .channel('accommodations-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'accommodations' }, () =>
+      .channel(`accommodations-changes-${tripId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'accommodations', filter: `trip_id=eq.${tripId}` }, () =>
         refreshAccommodations()
       )
       .subscribe();
@@ -67,7 +77,7 @@ export function useAccommodations() {
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(channel);
     };
-  }, [fetchAccommodations, refreshAccommodations]);
+  }, [fetchAccommodations, refreshAccommodations, tripId]);
 
   async function addAccommodation(data) {
     if (!isSupabase) {
@@ -78,7 +88,7 @@ export function useAccommodations() {
     }
     const tempId = Date.now();
     setAccommodations((prev) => [...prev, { ...data, id: tempId }]);
-    const { error: err } = await supabase.from('accommodations').insert([data]);
+    const { error: err } = await supabase.from('accommodations').insert([{ ...data, trip_id: tripId }]);
     if (err) { await refreshAccommodations(); return { error: err.message }; }
     await refreshAccommodations();
     return { error: null };

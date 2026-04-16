@@ -3,8 +3,10 @@ import dynamic from 'next/dynamic';
 import Head from 'next/head';
 import Link from 'next/link';
 import { usePlaces } from '../hooks/usePlaces';
+import { useTrip } from '../context/TripContext';
 import FilterBar, { CATEGORY_BORDER, CATEGORY_BADGE } from '../components/FilterBar';
 import PlaceList from '../components/PlaceList';
+import TripSwitchLink from '../components/TripSwitchLink';
 
 const MapView = dynamic(() => import('../components/MapView'), { ssr: false });
 
@@ -19,6 +21,7 @@ const CATEGORY_ICON = {
 };
 
 export default function Home() {
+  const { trip, loading: tripLoading } = useTrip();
   const { places, loading } = usePlaces();
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -56,11 +59,37 @@ export default function Home() {
     setSelectedPlace(place);
   }
 
+  // No-trip gate: show prompt to create/join a trip (only when Supabase is configured)
+  const { isSupabase } = usePlaces();
+  if (isSupabase && !tripLoading && !trip) {
+    return (
+      <>
+        <Head><title>Trip Planner</title></Head>
+        <div className="min-h-screen bg-slate-50 font-sans flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
+            <p className="text-5xl mb-4">✈️</p>
+            <h1 className="text-xl font-bold text-slate-800 mb-2">Trip Planner</h1>
+            <p className="text-sm text-slate-500 mb-6">建立或加入一個旅行計劃，開始規劃你的旅程</p>
+            <Link
+              href="/trips"
+              className="inline-block w-full py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-900 transition-colors"
+            >
+              ✈️ 管理行程
+            </Link>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const mapCenter = trip ? [trip.map_lat, trip.map_lng] : undefined;
+  const tripTitle = trip?.name ?? 'Trip Planner';
+
   return (
     <>
       <Head>
-        <title>🇹🇼 Taiwan Trip Planner</title>
-        <meta name="description" content="Plan your Taiwan trip with an interactive map" />
+        <title>{tripTitle}</title>
+        <meta name="description" content="Plan your trip with an interactive map" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
@@ -75,10 +104,11 @@ export default function Home() {
           <div className="px-5 pt-6 pb-4 border-b border-slate-100">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
-                <span className="text-2xl">🇹🇼</span>
-                <h1 className="text-xl font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
+                <span className="text-2xl">✈️</span>
+                <h1 className="text-xl font-bold text-slate-800 tracking-tight">{tripTitle}</h1>
               </div>
               <div className="flex items-center gap-1">
+                <TripSwitchLink />
                 <Link href="/itinerary" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">📅 行程</Link>
                 <Link href="/accommodations" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">🏨 住宿</Link>
                 <Link href="/save" className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded-lg hover:bg-slate-100">📸 IG</Link>
@@ -87,7 +117,8 @@ export default function Home() {
               </div>
             </div>
             <p className="text-xs text-slate-400 ml-10">
-              {filteredPlaces.length} place{filteredPlaces.length !== 1 ? 's' : ''} · Taipei
+              {filteredPlaces.length} place{filteredPlaces.length !== 1 ? 's' : ''}
+              {trip?.destination ? ` · ${trip.destination}` : ''}
             </p>
           </div>
 
@@ -129,10 +160,11 @@ export default function Home() {
           {/* Header row */}
           <div className="flex items-center justify-between px-4 pt-3 pb-2">
             <div className="flex items-center gap-2">
-              <span className="text-xl">🇹🇼</span>
-              <h1 className="text-base font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
+              <span className="text-xl">✈️</span>
+              <h1 className="text-base font-bold text-slate-800 tracking-tight truncate max-w-[140px]">{tripTitle}</h1>
             </div>
             <div className="flex items-center gap-1.5">
+              <TripSwitchLink />
               <Link href="/itinerary" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">📅</Link>
               <Link href="/accommodations" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">🏨</Link>
               <Link href="/save" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">📸</Link>
@@ -141,7 +173,7 @@ export default function Home() {
                 href="/admin"
                 className="text-xs text-slate-400 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg"
               >
-                ✏️ 管理
+                ✏️
               </Link>
             </div>
           </div>
@@ -175,6 +207,7 @@ export default function Home() {
               places={filteredPlaces}
               selectedPlace={selectedPlace}
               onSelectPlace={handleMapPin}
+              center={mapCenter}
             />
           )}
 

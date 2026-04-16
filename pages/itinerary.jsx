@@ -5,6 +5,7 @@ import { usePlaces } from '../hooks/usePlaces';
 import { useItinerary } from '../hooks/useItinerary';
 import FilterBar, { CATEGORY_BADGE } from '../components/FilterBar';
 import ItineraryDay from '../components/ItineraryDay';
+import TripSwitchLink from '../components/TripSwitchLink';
 
 const CATEGORY_ICON = {
   Breakfast:  '🍳',
@@ -277,6 +278,7 @@ export default function Itinerary() {
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight">Taiwan Trip</h1>
               </div>
               <div className="flex items-center gap-1">
+                <TripSwitchLink />
                 <Link href="/" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">🗺️ 地圖</Link>
                 <Link href="/accommodations" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">🏨 住宿</Link>
                 <Link href="/save" className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100">📸 IG</Link>
@@ -307,6 +309,7 @@ export default function Itinerary() {
               <span className="text-base font-bold text-slate-800">📅 行程規劃</span>
             </div>
             <div className="flex items-center gap-1.5">
+              <TripSwitchLink />
               <Link href="/accommodations" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">🏨</Link>
               <Link href="/save" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg">📸</Link>
               <Link href="/admin" className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg">✏️ 管理</Link>

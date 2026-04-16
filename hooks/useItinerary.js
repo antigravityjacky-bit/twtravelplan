@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { useTrip } from '../context/TripContext';
 
 // ─── localStorage fallback (when Supabase env vars are not set) ───────────────
 
@@ -21,10 +22,12 @@ function saveToStorage(items) {
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
 export function useItinerary() {
+  const { tripId, loading: tripLoading } = useTrip();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const isSupabase = !!supabase;
+  const ready = !tripLoading && !!tripId;
 
   // ── Full fetch (initial load, shows spinner) ──────────────────────────────
   const fetchItems = useCallback(async () => {
@@ -33,26 +36,33 @@ export function useItinerary() {
       setLoading(false);
       return;
     }
+    if (!ready) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const { data } = await supabase
       .from('itinerary_items')
       .select('*')
+      .eq('trip_id', tripId)
       .order('day_number', { ascending: true })
       .order('sort_order', { ascending: true });
     if (data) setItems(data);
     setLoading(false);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
   // ── Silent refresh (post-mutation, no spinner) ────────────────────────────
   const refreshItems = useCallback(async () => {
-    if (!isSupabase) return;
+    if (!isSupabase || !ready) return;
     const { data } = await supabase
       .from('itinerary_items')
       .select('*')
+      .eq('trip_id', tripId)
       .order('day_number', { ascending: true })
       .order('sort_order', { ascending: true });
     if (data) setItems(data);
-  }, [isSupabase]);
+  }, [isSupabase, ready, tripId]);
 
   // ── Initial load + realtime + visibilitychange ────────────────────────────
   useEffect(() => {
@@ -63,13 +73,13 @@ export function useItinerary() {
     }
     document.addEventListener('visibilitychange', handleVisibility);
 
-    if (!supabase) return () => document.removeEventListener('visibilitychange', handleVisibility);
+    if (!supabase || !tripId) return () => document.removeEventListener('visibilitychange', handleVisibility);
 
     const channel = supabase
-      .channel('itinerary-changes')
+      .channel(`itinerary-changes-${tripId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'itinerary_items' },
+        { event: '*', schema: 'public', table: 'itinerary_items', filter: `trip_id=eq.${tripId}` },
         () => refreshItems()
       )
       .subscribe();
@@ -78,7 +88,7 @@ export function useItinerary() {
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(channel);
     };
-  }, [fetchItems, refreshItems]);
+  }, [fetchItems, refreshItems, tripId]);
 
   // ── Derived: unique sorted day numbers ────────────────────────────────────
   const days = [...new Set(items.map((i) => i.day_number))].sort((a, b) => a - b);
@@ -103,7 +113,7 @@ export function useItinerary() {
     const tempId = Date.now();
     setItems((prev) => [...prev, { id: tempId, day_number, place_id, sort_order }]);
 
-    await supabase.from('itinerary_items').insert([{ day_number, place_id, sort_order }]);
+    await supabase.from('itinerary_items').insert([{ day_number, place_id, sort_order, trip_id: tripId }]);
     await refreshItems(); // replace temp id with real server id
   }
 
@@ -136,7 +146,7 @@ export function useItinerary() {
     const tempId = Date.now();
     setItems((prev) => [...prev, { id: tempId, day_number: nextDay, place_id: null, sort_order: -1 }]);
 
-    await supabase.from('itinerary_items').insert([{ day_number: nextDay, place_id: null, sort_order: -1 }]);
+    await supabase.from('itinerary_items').insert([{ day_number: nextDay, place_id: null, sort_order: -1, trip_id: tripId }]);
     await refreshItems();
   }
 
@@ -150,7 +160,7 @@ export function useItinerary() {
 
     // Optimistic update
     setItems((prev) => prev.filter((i) => i.day_number !== day_number));
-    await supabase.from('itinerary_items').delete().eq('day_number', day_number);
+    await supabase.from('itinerary_items').delete().eq('day_number', day_number).eq('trip_id', tripId);
     await refreshItems();
   }
 

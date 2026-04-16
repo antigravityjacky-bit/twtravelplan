@@ -57,9 +57,9 @@ function MapController({ lat, lng, onMapClick }) {
   return null;
 }
 
-export default function SaveMap({ lat, lng, category, onMapClick }) {
+export default function SaveMap({ lat, lng, category, onMapClick, defaultCenter }) {
   const hasCoords = lat != null && lng != null;
-  const center = hasCoords ? [lat, lng] : [25.0478, 121.5319]; // Default: Taipei
+  const center = hasCoords ? [lat, lng] : (defaultCenter ?? [25.0478, 121.5319]);
 
   // When coordinates are set for the first time, remount the MapContainer so
   // Leaflet re-initialises with the correct center (Leaflet ignores prop changes

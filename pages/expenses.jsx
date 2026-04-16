@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useExpenses } from '../hooks/useExpenses';
+import { useTrip } from '../context/TripContext';
 import ExpenseCard from '../components/ExpenseCard';
 import ExpenseForm from '../components/ExpenseForm';
+import TripSwitchLink from '../components/TripSwitchLink';
 
 const DEFAULT_MEMBERS = Array(8).fill('');
 const DEFAULT_RATE = '3.85';
@@ -62,6 +64,7 @@ function fmtMoney(n, sym) {
 }
 
 export default function ExpensesPage() {
+  const { trip } = useTrip();
   const { expenses, loading, isSupabase, addExpense, updateExpense, deleteExpense } = useExpenses();
 
   // ── Persistent state (localStorage) ──────────────────────────────────────
@@ -80,6 +83,15 @@ export default function ExpensesPage() {
     } catch {}
   }, []);
 
+  // When trip changes, seed rate and display currency from trip data (if not overridden locally)
+  useEffect(() => {
+    if (!trip) return;
+    try {
+      if (!localStorage.getItem('tw_trip_rate')) setRateState(String(trip.exchange_rate ?? DEFAULT_RATE));
+      if (!localStorage.getItem('tw_trip_display_currency')) setDisplayCurrencyState(trip.home_currency ?? DEFAULT_CURRENCY);
+    } catch {}
+  }, [trip]);
+
   function setMembers(next) {
     setMembersState(next);
     localStorage.setItem('tw_trip_members', JSON.stringify(next));
@@ -89,10 +101,16 @@ export default function ExpensesPage() {
     localStorage.setItem('tw_trip_rate', v);
   }
   function toggleCurrency() {
-    const next = displayCurrency === 'HKD' ? 'TWD' : 'HKD';
+    const localCurrency = trip?.currency ?? 'TWD';
+    const homeCurrency = trip?.home_currency ?? 'HKD';
+    const next = displayCurrency === homeCurrency ? localCurrency : homeCurrency;
     setDisplayCurrencyState(next);
     localStorage.setItem('tw_trip_display_currency', next);
   }
+
+  const localCurrency = trip?.currency ?? 'TWD';
+  const homeCurrency = trip?.home_currency ?? 'HKD';
+  const currencies = [...new Set([homeCurrency, localCurrency])];
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [formOpen, setFormOpen] = useState(false);
@@ -108,7 +126,7 @@ export default function ExpensesPage() {
   }
 
   const activeMembers = members.filter((m) => m.trim());
-  const sym = displayCurrency === 'HKD' ? 'HK$' : 'NT$';
+  const sym = displayCurrency + '$';
   const rateNum = parseFloat(rate) || 3.85;
 
   // ── Settlement ────────────────────────────────────────────────────────────
@@ -184,6 +202,8 @@ export default function ExpensesPage() {
         <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
           <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
+              <TripSwitchLink />
+              <span className="text-slate-200">|</span>
               <Link href="/" className="text-slate-400 hover:text-slate-600 text-sm flex-shrink-0">← 地圖</Link>
               <span className="text-slate-200">|</span>
               <h1 className="font-bold text-slate-800 truncate">💸 帳單分攤</h1>
@@ -200,9 +220,9 @@ export default function ExpensesPage() {
                 onClick={toggleCurrency}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-700 text-xs font-semibold hover:bg-teal-100 transition-colors"
               >
-                {displayCurrency === 'HKD' ? 'HK$' : 'NT$'}
+                {displayCurrency}
                 <span className="text-teal-400">⇄</span>
-                {displayCurrency === 'HKD' ? 'NT$' : 'HK$'}
+                {currencies.find((c) => c !== displayCurrency) ?? currencies[0]}
               </button>
             </div>
           </div>
@@ -385,6 +405,7 @@ export default function ExpensesPage() {
         <ExpenseForm
           initial={editing}
           members={activeMembers}
+          currencies={currencies}
           onSave={handleSave}
           onCancel={closeForm}
           saving={saving}

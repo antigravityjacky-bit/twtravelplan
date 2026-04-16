@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useAccommodations } from '../hooks/useAccommodations';
 import AccommodationCard from '../components/AccommodationCard';
 import AccommodationForm from '../components/AccommodationForm';
+import TripSwitchLink from '../components/TripSwitchLink';
 
 const TYPES = ['All', 'Hotel', 'Airbnb', 'Hostel', 'Other'];
 
@@ -78,6 +79,8 @@ export default function Accommodations() {
         <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 overflow-x-auto scrollbar-none">
+              <TripSwitchLink />
+              <span className="text-slate-200 flex-shrink-0">|</span>
               <Link href="/" className="text-slate-400 hover:text-slate-600 transition-colors text-sm flex-shrink-0">
                 🗺️ 地圖
               </Link>
