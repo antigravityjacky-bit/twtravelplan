@@ -22,7 +22,7 @@ const CATEGORY_ICON = {
 
 export default function Home() {
   const { trip, loading: tripLoading } = useTrip();
-  const { places, loading } = usePlaces();
+  const { places, loading, isSupabase } = usePlaces();
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
@@ -60,7 +60,6 @@ export default function Home() {
   }
 
   // No-trip gate: show prompt to create/join a trip (only when Supabase is configured)
-  const { isSupabase } = usePlaces();
   if (isSupabase && !tripLoading && !trip) {
     return (
       <>
